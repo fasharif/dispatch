@@ -7,6 +7,8 @@
   "workspaces": [
     "packages/shared",
     "apps/api",
+    "apps/web",
+    "apps/driver",
     "tools/simulator"
   ],
   "packageManager": "npm@11.17.0",
@@ -26,9 +28,9 @@
     "db:seed": "npm run db:seed -w @dispatch/api"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
+    "@eslint/js": "9.39.5",
     "@types/node": "24.13.6",
-    "eslint": "10.11.0",
+    "eslint": "9.39.5",
     "globals": "17.12.0",
     "prettier": "3.9.9",
     "typescript": "6.0.3",

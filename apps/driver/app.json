@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "dispatch driver",
+    "slug": "dispatch-driver",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "dispatchdriver",
+    "ios": {
+      "bundleIdentifier": "dev.fasharif.dispatch.driver",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Your position is shared with your dispatcher while you are on shift, so deliveries can be assigned and tracked.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your position keeps being shared while you are on shift, even when the app is in the background, so customers can follow their delivery.",
+        "NSCameraUsageDescription": "A photo of the delivered parcel is part of the proof of delivery.",
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "package": "dev.fasharif.dispatch.driver",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Your position keeps being shared while you are on shift, even when the app is in the background, so customers can follow their delivery."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "A photo of the delivered parcel is part of the proof of delivery."
+        }
+      ],
+      "expo-sqlite",
+      "expo-secure-store"
+    ]
+  }
+}

@@ -172,14 +172,12 @@ export function TrackingPage({ token, locale }: { token: string; locale: Locale 
             <h2>{t.status[view.status]}</h2>
             {view.eta && view.status === 'picked_up' && (
               <p className="eta">
-                {fill(t.arriving, { duration: formatDuration(view.eta.seconds, locale) })}{' '}
-                <span className="muted">
-                  ({fill(t.around, { time: formatTime(view.eta.arrivalAt, locale) })})
-                </span>
+                {fill(t.arriving, { duration: formatDuration(view.eta.seconds, locale) })}
                 <br />
-                <small className="muted">
+                <span className="muted">
+                  {fill(t.around, { time: formatTime(view.eta.arrivalAt, locale) })} ·{' '}
                   {view.eta.source === 'osrm' ? t.sourceOsrm : t.sourceStraight}
-                </small>
+                </span>
               </p>
             )}
             {view.status === 'delivered' && view.completedAt && (

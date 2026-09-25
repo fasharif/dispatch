@@ -1,16 +1,14 @@
 import { haversineMeters, type DeliveryDto, type LatLng } from '@dispatch/shared';
 import { ApiClient } from './api-client.js';
+import { demoParcelPhoto } from './demo-photo.js';
 import type { SimulatedDriver } from './driver-sim.js';
 import { simulatedDrivers } from './drive.js';
 import type { Fleet } from './fleet.js';
 import { ROUTES, RouteWalker, TargetWalker } from './routes.js';
 import { ApiError } from './api-client.js';
 
-/** A 1×1 PNG stands in for the parcel photo a phone would take. */
-const PHOTO = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  'base64',
-);
+/** A drawn parcel stands in for the photo a phone would take. */
+const PHOTO = demoParcelPhoto();
 
 /** Demo depot in Al Quoz industrial area; drop-offs are spread around the simulated routes. */
 const DEPOT: LatLng = { lat: 25.1415, lng: 55.2263 };

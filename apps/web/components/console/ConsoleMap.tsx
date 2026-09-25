@@ -200,7 +200,12 @@ export function ConsoleMap({
     const bounds = new LngLatBounds()
       .extend([selected.pickup.lng, selected.pickup.lat])
       .extend([selected.dropoff.lng, selected.dropoff.lat]);
-    map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 600 });
+    // The details panel covers the right-hand side of the map.
+    map.fitBounds(bounds, {
+      padding: { top: 80, bottom: 80, left: 80, right: 460 },
+      maxZoom: 14,
+      duration: 600,
+    });
   }, [map, selected]);
 
   return (

@@ -474,8 +474,7 @@ label.checkbox input {
   width: 100%;
   border-radius: 6px;
   border: 1px solid var(--border);
-  image-rendering: pixelated;
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 3;
   object-fit: cover;
 }
 

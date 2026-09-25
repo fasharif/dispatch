@@ -1,5 +1,6 @@
 import { haversineMeters, type LocationBatch, type LocationBatchResult } from '@dispatch/shared';
 import { describe, expect, it } from 'vitest';
+import { demoParcelPhoto } from './demo-photo.js';
 import { SimulatedDriver, type FixSender } from './driver-sim.js';
 import { ROUTES, RouteWalker, TargetWalker } from './routes.js';
 import { percentile, summarise } from './stats.js';
@@ -118,5 +119,18 @@ describe('SimulatedDriver', () => {
     expect(driver.queued).toBe(0);
     expect([...api.stored.keys()]).toEqual([0, 1, 2]);
     expect(driver.nextSeq).toBe(3);
+  });
+});
+
+describe('demoParcelPhoto', () => {
+  it('is a real PNG of the requested size', () => {
+    const png = demoParcelPhoto(64, 48);
+    expect(png.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    expect(png.subarray(12, 16).toString('ascii')).toBe('IHDR');
+    expect(png.readUInt32BE(16)).toBe(64);
+    expect(png.readUInt32BE(20)).toBe(48);
+    expect(png.subarray(-8, -4).toString('ascii')).toBe('IEND');
   });
 });

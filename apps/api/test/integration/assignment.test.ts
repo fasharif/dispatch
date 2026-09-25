@@ -63,6 +63,19 @@ describe('driver assignment', () => {
     });
   });
 
+  it('keeps a delivery pending when nobody is free to take it at creation', async () => {
+    const created = await dispatcher.post<DeliveryDto>('/v1/deliveries', {
+      orderReference: 'TF-SO-2026-000901',
+      recipientName: 'Aisha Rahman',
+      address: 'Villa 12, Al Barsha 2, Dubai',
+      pickup: { lat: 25.1415, lng: 55.2263 },
+      dropoff: { lat: 25.0971, lng: 55.2019 },
+      autoAssign: true,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ status: 'pending', driver: null });
+  });
+
   it('never auto-assigns a driver whose last fix is stale', async () => {
     const stale = await enrolDriver(dispatcher, 'Stale Driver');
     const fresh = await enrolDriver(dispatcher, 'Fresh Driver');

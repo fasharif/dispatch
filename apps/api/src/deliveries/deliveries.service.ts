@@ -197,7 +197,13 @@ export class DeliveriesService {
     const created = await this.get(id);
     this.realtime.deliveryUpdated(created);
     if (!input.autoAssign) return created;
-    return this.assign(id, {}, dispatcher);
+    try {
+      return await this.assign(id, {}, dispatcher);
+    } catch (error) {
+      // The delivery exists either way: with no driver free it waits, pending, for one.
+      if (errorCode(error) === ErrorCode.NO_DRIVER_AVAILABLE) return created;
+      throw error;
+    }
   }
 
   /**
@@ -505,4 +511,10 @@ export class DeliveriesService {
     }
     return { id: driver.id, name: driver.name, distanceMeters: null };
   }
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!(error instanceof ConflictException)) return undefined;
+  const response = error.getResponse();
+  return typeof response === 'object' ? (response as { code?: string }).code : undefined;
 }

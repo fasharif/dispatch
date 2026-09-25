@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Expo / React Native
+.expo/
+.expo-shared/
+apps/driver/android/
+apps/driver/ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Environment files (only .env.example files are committed)
+.env
+.env.*
+!.env.example
+
+# Tests and reports
+coverage/
+playwright-report/
+test-results/
+blob-report/
+load/results/*
+!load/results/.gitkeep
+
+# Local data
+apps/web/public/tiles/*.pmtiles
+data/
+uploads/
+osrm/data/
+
+# Editors and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

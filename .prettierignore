@@ -9,3 +9,4 @@ apps/driver/.expo
 apps/web/next-env.d.ts
 load/results
 *.pmtiles
+apps/driver/.bundle-check

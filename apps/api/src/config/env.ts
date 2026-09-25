@@ -16,9 +16,12 @@ const csv = z.string().transform((value) =>
     .filter(Boolean),
 );
 
+const required = (name: string) =>
+  z.string({ error: `${name} is required` }).min(1, `${name} is required`);
+
 const secret = (name: string) =>
   z
-    .string()
+    .string({ error: `${name} is required (32+ random characters: openssl rand -base64 48)` })
     .min(32, `${name} must be at least 32 characters (for example: openssl rand -base64 48)`);
 
 /** Values from .env.example and docker-compose.yml. They are public, so production refuses them. */
@@ -32,9 +35,9 @@ export const envSchema = z
     PROCESS_ROLE: z.enum(['api', 'worker', 'all']).default('all'),
     INSTANCE_ID: z.string().min(1).max(64).default(hostname()),
 
-    DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+    DATABASE_URL: required('DATABASE_URL'),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
-    REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+    REDIS_URL: required('REDIS_URL'),
 
     JWT_SECRET: secret('JWT_SECRET'),
     JWT_TTL_MINUTES: z.coerce

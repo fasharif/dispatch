@@ -4,12 +4,18 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { configureApp } from './bootstrap.js';
-import { loadConfig } from './config/env.js';
+import { loadConfig, type AppConfig } from './config/env.js';
 import { WorkerModule } from './worker.module.js';
 
 // Validate the environment before anything connects, so a bad deployment stops with a list of
 // what is wrong rather than a stack trace from the first query.
-const config = loadConfig();
+let config: AppConfig;
+try {
+  config = loadConfig();
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
 const logger = new Logger('Bootstrap');
 
 if (config.role === 'api' || config.role === 'all') {

@@ -24,7 +24,7 @@ Common options
 
 seed      --drivers <n> [--prefix <name>]
 drive     [--interval <s>=3] [--duration <s>=60] [--offline-rate <0-1>=0.02] [--offline-seconds <s>=20]
-demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=20]
+demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=40]
 listen    [--duration <s>=60] [--out <file>=listen-report.json]
 verify    --report <file> --database-url <url>
 `;
@@ -42,7 +42,7 @@ const { positionals, values } = parseArgs({
     duration: { type: 'string' },
     'offline-rate': { type: 'string', default: '0.02' },
     'offline-seconds': { type: 'string', default: '20' },
-    'order-every': { type: 'string', default: '20' },
+    'order-every': { type: 'string', default: '40' },
     out: { type: 'string', default: 'listen-report.json' },
     report: { type: 'string' },
     'database-url': { type: 'string', default: process.env.DATABASE_URL },
@@ -112,7 +112,7 @@ async function main(): Promise<number> {
         dispatcher: new ApiClient(values.api).withToken(await dispatcherToken(values.api)),
         intervalSeconds: number(values.interval, 2, 'interval'),
         durationSeconds: number(values.duration, 600, 'duration'),
-        newDeliveryEverySeconds: number(values['order-every'], 20, 'order-every'),
+        newDeliveryEverySeconds: number(values['order-every'], 40, 'order-every'),
         log,
       });
       return 0;

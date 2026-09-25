@@ -15,6 +15,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -31,7 +32,27 @@ export class ApiClient {
     return new ApiClient(this.baseUrl, token);
   }
 
+  /**
+   * Sends a request. A 429 answer is retried after the Retry-After delay (the API rate-limits
+   * sign-in and enrolment), up to three times.
+   */
   async request<T>(method: string, path: string, body?: unknown, timeoutMs = 10_000): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.once<T>(method, path, body, timeoutMs);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 429 || attempt >= 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, (error.retryAfterSeconds ?? 5) * 1000));
+      }
+    }
+  }
+
+  private async once<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.token) headers.authorization = `Bearer ${this.token}`;
     let payload: string | FormData | undefined;
@@ -54,9 +75,11 @@ export class ApiClient {
       } catch {
         // Not JSON: keep the raw text.
       }
+      const retryAfter = Number(response.headers.get('retry-after'));
       throw new ApiError(
         response.status,
         `${method} ${path}: ${String(response.status)} ${message}`,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
       );
     }
     return (text ? JSON.parse(text) : undefined) as T;

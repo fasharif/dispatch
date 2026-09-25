@@ -4,6 +4,7 @@ import type { SimulatedDriver } from './driver-sim.js';
 import { simulatedDrivers } from './drive.js';
 import type { Fleet } from './fleet.js';
 import { ROUTES, RouteWalker, TargetWalker } from './routes.js';
+import { ApiError } from './api-client.js';
 
 /** A 1×1 PNG stands in for the parcel photo a phone would take. */
 const PHOTO = Buffer.from(
@@ -51,15 +52,13 @@ interface DriverState {
 /** About 50 km/h in town. */
 const DELIVERY_SPEED_MPS = 14;
 
+/** A random point 1.5–6 km from the depot, so a delivery takes minutes rather than an hour. */
 function randomDropoff(): LatLng {
-  const routes = Object.values(ROUTES);
-  const route = routes[Math.floor(Math.random() * routes.length)] ?? [];
-  const point = route[Math.floor(Math.random() * route.length)] ?? DEPOT;
-  // Up to about 800 m away from a route point.
-  return {
-    lat: Number((point.lat + (Math.random() - 0.5) * 0.014).toFixed(6)),
-    lng: Number((point.lng + (Math.random() - 0.5) * 0.014).toFixed(6)),
-  };
+  const distance = 1_500 + Math.random() * 4_500;
+  const bearing = Math.random() * 2 * Math.PI;
+  const dLat = (distance * Math.cos(bearing)) / 111_320;
+  const dLng = (distance * Math.sin(bearing)) / (111_320 * Math.cos((DEPOT.lat * Math.PI) / 180));
+  return { lat: Number((DEPOT.lat + dLat).toFixed(6)), lng: Number((DEPOT.lng + dLng).toFixed(6)) };
 }
 
 /**
@@ -81,6 +80,8 @@ export async function demo(fleet: Fleet, options: DemoOptions): Promise<void> {
   const deadline = Date.now() + options.durationSeconds * 1000;
   let lastOrder = 0;
   let orderNumber = Math.floor(Math.random() * 900_000);
+  /** Orders that found no free driver; one is offered again each tick. */
+  const waiting: string[] = [];
 
   while (Date.now() < deadline) {
     const started = Date.now();
@@ -101,8 +102,24 @@ export async function demo(fleet: Fleet, options: DemoOptions): Promise<void> {
         log(
           `order ${delivery.orderReference} → ${delivery.driver?.name ?? 'waiting for a driver'}`,
         );
+        if (!delivery.driver) waiting.push(delivery.id);
       } catch (error) {
-        log(`new order not assigned yet: ${(error as Error).message}`);
+        log(`new order failed: ${(error as Error).message}`);
+      }
+    }
+    const next = waiting[0];
+    if (next) {
+      try {
+        const assigned = await options.dispatcher.request<DeliveryDto>(
+          'POST',
+          `/v1/deliveries/${next}/assign`,
+          {},
+        );
+        waiting.shift();
+        log(`order ${assigned.orderReference} → ${assigned.driver?.name ?? '?'}`);
+      } catch (error) {
+        // 409: still nobody free. Anything else: stop offering this order.
+        if (!(error instanceof ApiError) || error.status !== 409) waiting.shift();
       }
     }
 

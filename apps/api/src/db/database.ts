@@ -60,6 +60,8 @@ export class Database implements OnApplicationShutdown {
     this.pool = new pg.Pool({
       connectionString: config.database.url,
       max: config.database.poolMax,
+      // TCP keepalive: proxies and NAT between the API and the database drop silent connections.
+      keepAlive: true,
       application_name: `dispatch-${config.role}-${config.instanceId}`,
     });
     this.pool.on('error', (error) => {

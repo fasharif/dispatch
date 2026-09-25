@@ -6,7 +6,8 @@
   "license": "MIT",
   "workspaces": [
     "packages/shared",
-    "apps/api"
+    "apps/api",
+    "tools/simulator"
   ],
   "packageManager": "npm@11.17.0",
   "engines": {

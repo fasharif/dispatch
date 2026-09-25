@@ -26,7 +26,7 @@ seed      --drivers <n> [--prefix <name>]
 drive     [--interval <s>=3] [--duration <s>=60] [--offline-rate <0-1>=0.02] [--offline-seconds <s>=20]
 demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=40]
 listen    [--duration <s>=60] [--out <file>=listen-report.json]
-verify    --report <file> --database-url <url>
+verify    --report <file> --database-url <url> [--result <file>]
 `;
 
 const { positionals, values } = parseArgs({
@@ -45,6 +45,7 @@ const { positionals, values } = parseArgs({
     'order-every': { type: 'string', default: '40' },
     out: { type: 'string', default: 'listen-report.json' },
     report: { type: 'string' },
+    result: { type: 'string' },
     'database-url': { type: 'string', default: process.env.DATABASE_URL },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -134,6 +135,7 @@ async function main(): Promise<number> {
         throw new Error('verify needs --report and --database-url');
       const report = JSON.parse(await readFile(values.report, 'utf8')) as ListenReport;
       const result = await verify(values['database-url'], await readFleet(values.fleet), report);
+      if (values.result) await writeFile(values.result, `${JSON.stringify(result, null, 2)}\n`);
       log(JSON.stringify(result));
       return result.lost === 0 && result.unexpected === 0 ? 0 : 1;
     }

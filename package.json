@@ -17,18 +17,20 @@
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present && eslint load",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p load/tsconfig.json",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:migrate": "npm run db:migrate -w @dispatch/api",
-    "db:seed": "npm run db:seed -w @dispatch/api"
+    "db:seed": "npm run db:seed -w @dispatch/api",
+    "test:scale": "bash load/run-scale-test.sh"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@types/k6": "2.2.1",
     "@types/node": "24.13.6",
     "eslint": "9.39.5",
     "globals": "17.12.0",

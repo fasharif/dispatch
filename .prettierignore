@@ -1,0 +1,11 @@
+node_modules
+dist
+.next
+coverage
+playwright-report
+test-results
+package-lock.json
+apps/driver/.expo
+apps/web/next-env.d.ts
+load/results
+*.pmtiles

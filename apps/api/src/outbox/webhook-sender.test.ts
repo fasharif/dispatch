@@ -85,6 +85,29 @@ describe('WebhookSender', () => {
     expect(refused.kind === 'rejected' && refused.error).toContain('is unknown');
   });
 
+  it('reads only the start of a reply, so an endless body cannot fill the worker', async () => {
+    let written = 0;
+    server = await localServer((_req, res) => {
+      res.statusCode = 500;
+      const chunk = 'x'.repeat(64 * 1024);
+      // Writes until the client goes away: reading the whole body would never finish.
+      const pump = () => {
+        while (!res.destroyed && written < 512 * 1024 * 1024) {
+          written += chunk.length;
+          if (!res.write(chunk)) {
+            res.once('drain', pump);
+            return;
+          }
+        }
+      };
+      pump();
+    });
+    const outcome = await sender(`${server.url}/hook`, 10_000).send(envelope);
+    expect(outcome).toMatchObject({ kind: 'retry', status: 500 });
+    expect(outcome.kind === 'retry' && outcome.error).toBe(`HTTP 500: ${'x'.repeat(300)}`);
+    expect(written).toBeLessThan(64 * 1024 * 1024);
+  });
+
   it('turns timeouts and refused connections into retryable outcomes', async () => {
     server = await localServer(() => {
       // Never answers.

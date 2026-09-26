@@ -18,6 +18,10 @@ export type SendOutcome =
 
 const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
 
+/** How much of a reply is read for the log: enough for an error message, never a whole body. */
+const SNIPPET_BYTES = 1024;
+const SNIPPET_CHARS = 300;
+
 export function classifyStatus(status: number): 'delivered' | 'retry' | 'rejected' {
   if (status >= 200 && status < 300) return 'delivered';
   if (status >= 500 || RETRYABLE_4XX.has(status)) return 'retry';
@@ -64,8 +68,8 @@ export class WebhookSender {
             : String(error);
       return { kind: 'retry', status: null, error: message };
     }
-    // Read (and cap) the body so the connection can be reused, and keep a snippet for the log.
-    const text = (await response.text().catch(() => '')).slice(0, 300);
+    // The start of the reply, for the log; a receiver's large or endless body is not read.
+    const text = await readSnippet(response);
     const kind = classifyStatus(response.status);
     if (kind === 'delivered') return { kind, status: response.status };
     const error = `HTTP ${String(response.status)}${text ? `: ${text}` : ''}`;
@@ -73,4 +77,37 @@ export class WebhookSender {
       ? { kind, status: response.status, error }
       : { kind, status: response.status, error };
   }
+}
+
+/**
+ * Reads at most SNIPPET_BYTES of a response body, then cancels the rest, so a misbehaving
+ * receiver cannot make the worker buffer a large reply. Returns up to SNIPPET_CHARS characters.
+ */
+export async function readSnippet(response: Response): Promise<string> {
+  const body = response.body;
+  if (!body) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < SNIPPET_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } catch {
+    // A broken body only costs the snippet.
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(Math.min(size, SNIPPET_BYTES));
+  let offset = 0;
+  for (const chunk of chunks) {
+    const part = chunk.subarray(0, bytes.length - offset);
+    bytes.set(part, offset);
+    offset += part.length;
+    if (offset >= bytes.length) break;
+  }
+  return new TextDecoder().decode(bytes).slice(0, SNIPPET_CHARS);
 }

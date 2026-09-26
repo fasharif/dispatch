@@ -22,33 +22,7 @@ export default async function setup(project: TestProject): Promise<void> {
   if (!/^[a-z_][a-z0-9_]*$/.test(database))
     throw new Error(`Unsafe test database name: ${database}`);
 
-  const admin = new URL(TEST_DATABASE_URL);
-  admin.pathname = '/postgres';
-  const client = new pg.Client({ connectionString: admin.toString() });
-  try {
-    await client.connect();
-  } catch (error) {
-    throw new Error(
-      `Cannot reach PostgreSQL at ${admin.host}. Start it with "docker compose up -d" ` +
-        `(or set TEST_DATABASE_URL): ${(error as Error).message}`,
-      { cause: error },
-    );
-  }
-  const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [database]);
-  if (exists.rowCount === 0) await client.query(`CREATE DATABASE ${database}`);
-  await client.end();
-
-  // Start from an empty schema. Dropping the schema rather than the database avoids the forced
-  // checkpoint of DROP DATABASE, which takes seconds on a busy Docker Desktop disk.
-  const reset = new pg.Client({ connectionString: TEST_DATABASE_URL });
-  await reset.connect();
-  await reset.query('DROP SCHEMA IF EXISTS public CASCADE');
-  await reset.query('CREATE SCHEMA public');
-  await reset.end();
-
-  const pool = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 1 });
-  await migrate(pool);
-  await pool.end();
+  await withRetry(() => prepareDatabase(TEST_DATABASE_URL, database));
 
   const redis = new Redis(TEST_REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1 });
   try {
@@ -65,4 +39,58 @@ export default async function setup(project: TestProject): Promise<void> {
   }
   project.provide('databaseUrl', TEST_DATABASE_URL);
   project.provide('redisUrl', TEST_REDIS_URL);
+}
+
+/** Creates the test database when missing, empties its schema and applies the migrations. */
+async function prepareDatabase(url: string, database: string): Promise<void> {
+  const admin = new URL(url);
+  admin.pathname = '/postgres';
+  const client = new pg.Client({ connectionString: admin.toString() });
+  client.on('error', () => undefined);
+  try {
+    await client.connect();
+  } catch (error) {
+    await client.end().catch(() => undefined);
+    throw new Error(
+      `Cannot reach PostgreSQL at ${admin.host}. Start it with "docker compose up -d" ` +
+        `(or set TEST_DATABASE_URL): ${(error as Error).message}`,
+      { cause: error },
+    );
+  }
+  try {
+    const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [database]);
+    if (exists.rowCount === 0) await client.query(`CREATE DATABASE ${database}`);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+
+  // Start from an empty schema. Dropping the schema rather than the database avoids the forced
+  // checkpoint of DROP DATABASE, which takes seconds on a busy Docker Desktop disk.
+  const pool = new pg.Pool({ connectionString: url, max: 1 });
+  pool.on('error', () => undefined);
+  try {
+    await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
+    await pool.query('CREATE SCHEMA public');
+    await migrate(pool);
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
+}
+
+/**
+ * Docker Desktop's port proxy on Windows sometimes resets a fresh connection; the setup is
+ * idempotent, so it is simply tried again.
+ */
+async function withRetry(task: () => Promise<void>, attempts = 3): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await task();
+      return;
+    } catch (error) {
+      const code =
+        (error as { code?: string }).code ?? (error as { cause?: { code?: string } }).cause?.code;
+      if (attempt >= attempts || (code !== 'ECONNRESET' && code !== 'EPIPE')) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
 }

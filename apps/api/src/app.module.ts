@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { MulterModule } from '@nestjs/platform-express';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AccessGuard } from './auth/access.guard.js';
+import { AuthFailures } from './auth/auth-failures.js';
 import { DeviceTokens } from './auth/device-tokens.js';
 import { AuthController } from './auth/auth.controller.js';
 import { AuthService } from './auth/auth.service.js';
@@ -72,10 +73,12 @@ import { TrackingService } from './tracking/tracking.service.js';
   ],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
-    // Guards run in this order: identify the caller, then rate-limit per caller.
+    // Guards run in this order: identify the caller, then rate-limit per caller. Failed
+    // device-token checks are limited per address inside AccessGuard, before the lookup.
     { provide: APP_GUARD, useClass: AccessGuard },
     { provide: APP_GUARD, useClass: CallerThrottlerGuard },
     AccessTokens,
+    AuthFailures,
     DeviceTokens,
     AuthService,
     DriversService,

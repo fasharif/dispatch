@@ -2,7 +2,8 @@ import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DeviceTokens } from '../../src/auth/device-tokens.js';
 import { MIGRATIONS_DIR, migrate } from '../../src/db/migrator.js';
 import { RedisThrottlerStorage } from '../../src/common/throttle.js';
 import type { DeviceDto, DriverDto } from '@dispatch/shared';
@@ -255,6 +256,41 @@ describe('platform', () => {
       expect(hits.map((h) => h.isBlocked)).toEqual([false, false, false, true]);
       expect(hits[3]?.timeToBlockExpire).toBeGreaterThan(0);
       expect((await storage.increment('other', 60_000, 3, 0, 'test')).isBlocked).toBe(false);
+    });
+
+    it('refuses an address that keeps sending invalid device tokens, before looking them up', async () => {
+      const strict = await startApp({ AUTH_FAILURE_LIMIT: '3' }, { instanceId: 'strict' });
+      try {
+        await resetState(strict.db, strict.redis);
+        const lookups = vi.spyOn(strict.app.get(DeviceTokens), 'resolve');
+        const api = new Api(strict.url);
+        const dispatcher = await api.login();
+        const driver = await enrolDriver(dispatcher, 'Omar', false);
+        // A token that is not even shaped like one is refused without a database lookup.
+        expect((await api.as('not-a-device-token').get('/v1/driver/me')).status).toBe(401);
+        expect(lookups).not.toHaveBeenCalled();
+
+        const invalid = `dvc_${'A'.repeat(43)}`;
+        const statuses = [];
+        for (let i = 0; i < 3; i += 1) {
+          statuses.push((await api.as(invalid).get('/v1/driver/me')).status);
+        }
+        // Four failures in the minute, one more than the limit: the address is blocked.
+        expect(statuses).toEqual([401, 401, 429]);
+        expect(lookups).toHaveBeenCalledTimes(3);
+
+        // Blocked: even a valid token from this address waits, and nothing is looked up.
+        lookups.mockClear();
+        const blocked = await api
+          .as(driver.api.token ?? '')
+          .get<{ message: string }>('/v1/driver/me');
+        expect(blocked.status).toBe(429);
+        expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+        expect(blocked.body.message).toMatch(/invalid device token/);
+        expect(lookups).not.toHaveBeenCalled();
+      } finally {
+        await strict.close();
+      }
     });
 
     it('answers 429 once a caller exceeds the login limit', async () => {

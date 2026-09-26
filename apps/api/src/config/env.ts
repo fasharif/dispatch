@@ -58,6 +58,8 @@ export const envSchema = z
     TRUST_PROXY: booleanFlag.default(false),
     THROTTLE_LIMIT: z.coerce.number().int().min(1).default(600),
     AUTH_THROTTLE_LIMIT: z.coerce.number().int().min(1).default(10),
+    /** Invalid device tokens per client address and minute before the address is refused. */
+    AUTH_FAILURE_LIMIT: z.coerce.number().int().min(1).default(30),
 
     UPLOAD_DIR: z.string().min(1).default('./data/uploads'),
     MAX_PHOTO_BYTES: z.coerce
@@ -146,6 +148,7 @@ export interface AppConfig {
     trustProxy: boolean;
     throttleLimit: number;
     authThrottleLimit: number;
+    authFailureLimit: number;
   };
   uploads: { dir: string; maxPhotoBytes: number };
   geofence: { radiusM: number; accuracyAllowanceM: number };
@@ -186,6 +189,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       trustProxy: env.TRUST_PROXY,
       throttleLimit: env.THROTTLE_LIMIT,
       authThrottleLimit: env.AUTH_THROTTLE_LIMIT,
+      authFailureLimit: env.AUTH_FAILURE_LIMIT,
     },
     uploads: { dir: env.UPLOAD_DIR, maxPhotoBytes: env.MAX_PHOTO_BYTES },
     geofence: {

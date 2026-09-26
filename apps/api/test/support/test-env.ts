@@ -41,6 +41,7 @@ export function testEnv(targets: TestTargets): Record<string, string> {
     UPLOAD_DIR: mkdtempSync(join(tmpdir(), 'dispatch-uploads-')),
     THROTTLE_LIMIT: '100000',
     AUTH_THROTTLE_LIMIT: '100000',
+    AUTH_FAILURE_LIMIT: '100000',
     WEBHOOK_URL: '',
     WEBHOOK_SECRET: '',
     WEBHOOK_BACKOFF_MS: '100',

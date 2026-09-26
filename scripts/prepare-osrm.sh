@@ -2,11 +2,13 @@
 # Prepares road-network data for the OSRM compose profile (road-based ETAs).
 #
 #   scripts/prepare-osrm.sh
-#       The Geofabrik extract of the GCC states (about 250 MB to download). Processing it needs
-#       several GB of memory; give Docker enough before running it.
+#       The Geofabrik extract of the GCC states: 253,745,659 bytes for the 25 September 2026 file
+#       (Content-Length, checked with curl -I on 26 September 2026). It has not been processed on
+#       the development machine, so its memory needs are not measured here; set
+#       OSRM_PREPARE_MEMORY (default 3g) to what Docker can give.
 #   scripts/prepare-osrm.sh --bbox 25.08,55.17,25.16,55.25
 #       Only the roads inside a south,west,north,east box, from the Overpass API. Small and quick,
-#       for trying the integration out.
+#       for trying the integration out; tested with OSRM_PREPARE_MEMORY=1500m.
 #
 # Then: docker compose --profile osrm up -d osrm, and OSRM_URL=http://localhost:57500 for the API
 # (http://osrm:5000 inside the compose stack).

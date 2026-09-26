@@ -160,6 +160,8 @@ services:
       tiles: { condition: service_completed_successfully }
     mem_limit: 64m
 
+  # Tested only with the small Overpass box (scripts/prepare-osrm.sh --bbox …); the 2g limit has
+  # not been tried with the full GCC extract.
   osrm:
     profiles: [osrm]
     image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian

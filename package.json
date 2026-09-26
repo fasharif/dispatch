@@ -2,7 +2,7 @@
   "name": "dispatch",
   "version": "0.1.0",
   "private": true,
-  "description": "Live delivery tracking for TopFlow orders: dispatcher console, driver app, customer tracking links and signed webhooks.",
+  "description": "Live delivery tracking for TopFlow Hub orders (portfolio demo): dispatcher console, driver app, customer tracking links and signed webhooks.",
   "license": "MIT",
   "workspaces": [
     "packages/shared",

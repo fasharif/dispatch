@@ -4,7 +4,7 @@ import '../globals.css';
 
 export const metadata: Metadata = {
   title: 'dispatch · console',
-  description: 'Live delivery tracking for TopFlow orders: dispatcher console.',
+  description: 'Dispatcher console for live delivery tracking (portfolio demo).',
   robots: { index: false, follow: false },
 };
 

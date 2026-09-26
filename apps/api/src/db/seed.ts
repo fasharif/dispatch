@@ -4,6 +4,7 @@
 // is required, because a public password on a real system is an open door.
 import pg from 'pg';
 import { hashPassword } from '../auth/passwords.js';
+import { retryConnection } from './retry.js';
 
 export const LOCAL_DEMO_PASSWORD = 'dispatch-demo-2026';
 
@@ -26,11 +27,22 @@ if (!password || password.length < 12) {
 }
 
 const pool = new pg.Pool({ connectionString: url, max: 1 });
+pool.on('error', () => undefined);
 try {
-  await pool.query(
-    `INSERT INTO dispatchers (email, name, password_hash) VALUES ($1, $2, $3)
-     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password_hash = EXCLUDED.password_hash`,
-    [email, name, await hashPassword(password)],
+  const passwordHash = await hashPassword(password);
+  // An upsert: safe to repeat after a dropped connection.
+  await retryConnection(
+    () =>
+      pool.query(
+        `INSERT INTO dispatchers (email, name, password_hash) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, password_hash = EXCLUDED.password_hash`,
+        [email, name, passwordHash],
+      ),
+    {
+      log: (message) => {
+        console.error(message);
+      },
+    },
   );
   console.log(`Dispatcher account ready: ${email}`);
 } catch (error) {

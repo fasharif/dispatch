@@ -2,6 +2,7 @@
 // one-shot `migrate` service in docker-compose.yml, before any API instance starts.
 import pg from 'pg';
 import { migrate } from './migrator.js';
+import { retryConnection } from './retry.js';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -10,10 +11,21 @@ if (!url) {
 }
 
 const pool = new pg.Pool({ connectionString: url, max: 1 });
+// A connection that drops while idle is reported here; the query that needs it fails and retries.
+pool.on('error', () => undefined);
 try {
-  const applied = await migrate(pool, undefined, (message) => {
-    console.log(message);
-  });
+  // Safe to repeat: migrations apply under an advisory lock and are recorded as they complete.
+  const applied = await retryConnection(
+    () =>
+      migrate(pool, undefined, (message) => {
+        console.log(message);
+      }),
+    {
+      log: (message) => {
+        console.error(message);
+      },
+    },
+  );
   console.log(
     applied.length === 0
       ? 'Database is up to date'

@@ -4,7 +4,7 @@ import {
   type LocationBatchResult,
 } from '@dispatch/shared';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -108,24 +108,37 @@ describe('LocationQueue', () => {
     expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => i));
   });
 
-  it('survives a restart: the queue and the next sequence number are on disk', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dispatch-queue-'));
-    const path = join(dir, 'queue.db');
-    const before = openNodeSqlite(path);
-    const q1 = new LocationQueue(before, { uuid: randomUUID });
-    await q1.init();
-    await q1.bindDevice('device-1');
-    const recorded = await q1.enqueue([fixAt(0), fixAt(5)]);
-    before.close();
+  // A file on disk, closed and opened again. The test checks persistence across a restart, not
+  // crash durability, so SQLite skips its fsyncs (synchronous = OFF): on a slow or busy disk they
+  // took this test past Vitest's 5-second default. The explicit timeout is a second margin.
+  it(
+    'survives a restart: the queue and the next sequence number are on disk',
+    { timeout: 30_000 },
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dispatch-queue-'));
+      const path = join(dir, 'queue.db');
+      try {
+        const before = openNodeSqlite(path);
+        await before.exec('PRAGMA synchronous = OFF');
+        const q1 = new LocationQueue(before, { uuid: randomUUID });
+        await q1.init();
+        await q1.bindDevice('device-1');
+        const recorded = await q1.enqueue([fixAt(0), fixAt(5)]);
+        before.close();
 
-    const after = openNodeSqlite(path);
-    const q2 = new LocationQueue(after, { uuid: randomUUID });
-    await q2.init();
-    expect(await q2.bindDevice('device-1')).toBe(false);
-    expect(await q2.peek(10)).toEqual(recorded);
-    expect((await q2.enqueue([fixAt(10)]))[0]?.seq).toBe(2);
-    after.close();
-  });
+        const after = openNodeSqlite(path);
+        await after.exec('PRAGMA synchronous = OFF');
+        const q2 = new LocationQueue(after, { uuid: randomUUID });
+        await q2.init();
+        expect(await q2.bindDevice('device-1')).toBe(false);
+        expect(await q2.peek(10)).toEqual(recorded);
+        expect((await q2.enqueue([fixAt(10)]))[0]?.seq).toBe(2);
+        after.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('starts a new sequence and clears old fixes when the phone is enrolled again', async () => {
     await queue.enqueue([fixAt(0), fixAt(5)]);

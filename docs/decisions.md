@@ -21,6 +21,8 @@ costs. Newer records can replace older ones; nothing is edited silently.
 | [014](#adr-014--the-scale-test-counts-lost-events-against-the-database)                            | The scale test counts lost events against the database                               |
 | [015](#adr-015--toolchain-pins-typescript-6-and-eslint-9)                                          | Toolchain pins: TypeScript 6 and ESLint 9                                            |
 | [016](#adr-016--docker-desktop-bind-mount-workarounds)                                             | Docker Desktop bind-mount workarounds                                                |
+| [017](#adr-017--the-console-reloads-drivers-and-deliveries-on-every-connection)                    | The console reloads drivers and deliveries on every connection                       |
+| [018](#adr-018--the-uuid-advisory-in-expos-build-tooling-is-accepted)                              | The uuid advisory in Expo's build tooling is accepted                                |
 
 ---
 
@@ -104,13 +106,18 @@ unique `(device_id, seq)` and a unique idempotency key, and answers per fix: `ac
 `duplicate`, `conflict` (the same seq with a different key, or the reverse) or `rejected` (clock
 skew beyond `MAX_CLOCK_SKEW_S`, or older than the retained history). The driver's current
 position only moves forward in time, whatever order fixes arrive in. New fixes are appended to
-the live stream before the response is sent, and the stream id is stored with the fix; a
-duplicate whose stream id is empty (the process died between storing and publishing) is
-published when it is replayed.
+the live stream before the response is sent, and the stream id is stored with the fix. A
+replay means the device never saw the first answer, so the instance that receives it cannot know
+how far the first attempt got: a duplicate whose stream id is empty (the process died between
+storing and publishing) is published now, and a duplicate that is already on the stream is
+broadcast again under its original stream id, because the first instance may have died after
+saving the stream id but before the Redis adapter passed the broadcast on.
 
 **Consequences.** A 2xx means "stored and on the live stream". Offline replays after hours are
 safe, and the scale test can count lost events exactly. The cost is one extra read per batch to
-classify replays.
+classify replays, and a repeated broadcast when a device replays a batch whose first broadcast
+did go out; consoles drop the repeat by `deviceId:seq`. An end-to-end test drops the broadcast on
+one instance after the commit and checks that a console on the other still receives the fix.
 
 ## ADR-006 — Live updates: Socket.IO over WebSocket only, Redis adapter, Redis stream for resume
 
@@ -124,13 +131,19 @@ there is no need for sticky sessions, and nginx can balance connections round ro
 is also appended to a Redis stream (`dispatch:locations`, trimmed to
 `LOCATION_STREAM_RETENTION_MIN` minutes). A console remembers the newest stream id it has seen;
 after a reconnect it asks for everything after that id (paged `XRANGE`), and drops duplicates by
-`deviceId:seq`. If the id is older than the retained window, the server answers `gap: true` and
-the console reloads the driver list instead. Customer tracking pages use a separate namespace
-and room per delivery and receive only that delivery's view.
+`deviceId:seq`. If the id is older than the retained window, the server answers `gap: true`.
+Only location fixes go through the stream; delivery and driver-status changes are reloaded over
+HTTP on every connection (ADR-017). Each connection is told which instance serves it and when its
+session ends, and the server closes it at that moment. Customer tracking pages use a separate
+namespace and room per delivery and receive only that delivery's view.
 
-**Consequences.** Killing an instance mid-stream loses no events (end-to-end test with two
-instances, and the scale test). Browsers or proxies that block WebSockets cannot connect; that
-is accepted for a dispatcher console and a tracking page.
+**Consequences.** No location fix is lost when an instance is killed: a console on the dead
+instance resumes from the stream, and a console on the surviving instance receives the fixes the
+dead instance stored but never broadcast when the devices replay them (ADR-005). Both are tested:
+end-to-end with two instances, and in the scale test with a console on each instance. The
+guarantee is about fixes; for deliveries and driver status the console shows the current state
+after a reconnect, not every change made while it was away. Browsers or proxies that block
+WebSockets cannot connect; that is accepted for a dispatcher console and a tracking page.
 
 ## ADR-007 — Webhooks through a transactional outbox, relayed by BullMQ
 
@@ -154,8 +167,9 @@ stay in the outbox, which is how the demo runs.
 
 ## ADR-008 — ETA from OSRM when configured, otherwise a stated straight-line estimate
 
-**Context.** A road-network ETA needs routing data. The GCC extract is large, and preparing it
-takes several gigabytes of memory, which CI and many laptops do not have.
+**Context.** A road-network ETA needs routing data. The Geofabrik GCC extract is a 254 MB
+download (the 25 September 2026 file), and it has not been processed on the development machine,
+which is shared with other workloads; CI has no routing data at all.
 
 **Decision.** With `OSRM_URL` set, ETAs come from OSRM's route and table services (driving
 profile, multi-level Dijkstra); routed ETAs on tracking pages are cached per delivery for 15
@@ -198,6 +212,11 @@ the recipient's name and a fresh position with its accuracy. The API checks the 
 against the drop-off point: `GEOFENCE_RADIUS_M` (150), widened by the reported accuracy up to
 `GEOFENCE_ACCURACY_ALLOWANCE_M` (50). Outside the fence the request is refused with the distance.
 Photos are stored on disk under generated names (`UPLOAD_DIR`) and served to dispatchers only.
+Before anything is written, a cheap read checks that the delivery exists, belongs to the calling
+device and can still be completed; multer stops reading an upload at `MAX_PHOTO_BYTES`. An
+optional `Idempotency-Key` header makes a retry answer like the first attempt; the key is checked
+again after the row lock, so two concurrent retries get the same answer, and a malformed key is
+refused with 400.
 
 **Consequences.** A driver cannot complete from across town. A spoofed GPS position still passes;
 detecting that is out of scope. Photo storage is a local volume, so multiple API hosts need a
@@ -210,7 +229,8 @@ shared volume or object storage (listed under limitations).
 
 **Decision.** Every route is closed unless marked `@Access('public' | 'dispatcher' | 'device')`.
 Dispatchers sign in with a password (scrypt, compared in constant time, with a dummy hash for
-unknown emails) and receive an HS256 JWT valid for `JWT_TTL_MINUTES` (8 hours, one shift). The console keeps it in memory only, not in
+unknown emails) and receive an HS256 JWT valid for `JWT_TTL_MINUTES` (8 hours, one shift); a live connection is
+closed when the token expires. The console keeps it in memory only, not in
 `localStorage` or a cookie, so a reload asks for the password again and no stored token is left
 for other scripts to find. Devices enrol once with a one-time code a dispatcher creates and
 receive an opaque `dvc_…` token; only its SHA-256 is stored. Login and enrolment are rate limited
@@ -228,8 +248,15 @@ signing in again after a reload, which suits a console that stays open all shift
 the app is in the background or offline must reach the server once each, in order, after any
 crash. Expo modules only run on a device or simulator, which CI does not have.
 
-**Decision.** Background location with `expo-location` and `expo-task-manager` (a fix every 5
-seconds or 10 metres on shift). Each fix is written to SQLite first (`expo-sqlite`), taking the
+**Decision.** Background location with `expo-location` and `expo-task-manager`, by time rather
+than distance: expo-location treats `timeInterval` and `distanceInterval` as minimums that must
+both be met, so the first version (5 seconds and 10 metres) sent nothing for a driver standing
+still, who then went stale after `DRIVER_STALE_AFTER_S` and was skipped by automatic assignment.
+`distanceInterval` is now 0: Android reports every 5 seconds; iOS, which ignores the interval,
+reports as positions arrive and the queue keeps at most one every 4 seconds; while the app is
+open on shift, a heartbeat asks for a position after 30 seconds without one. The values live in
+`location/policy.ts`, and a unit test checks them against the API's staleness default. Each fix
+is written to SQLite first (`expo-sqlite`), taking the
 next sequence number in the same transaction, and removed only after the server has answered for
 it. Replay sends the oldest fixes first and stops at a network error, a refused device token or
 any other error answer, keeping everything unanswered; a 400 for a whole batch is retried one fix
@@ -259,17 +286,25 @@ Map data is © OpenStreetMap contributors under the ODbL, credited on every map.
 ## ADR-014 — The scale test counts lost events against the database
 
 **Context.** "No lost events when an instance dies" is the property that matters, and latency on
-a shared development machine is noise.
+a shared development machine is noise. The first version killed `api-1` while its single console
+connected through nginx, so a run could pass with the console on `api-2`, never reconnecting, and
+test nothing; and a console that stays on the surviving instance was never measured.
 
 **Decision.** `load/run-scale-test.sh` starts two API instances behind nginx, enrols N simulated
-drivers, runs k6 (one virtual user per driver) and a listening console, kills one API instance
-with SIGKILL halfway through, and then compares every fix stored in the database with what the
-console received. The run fails on any lost event, on an empty k6 summary, or when no fix was
-stored. Latency is measured from the batch's `sentAt` to arrival at the console, on the same
-Docker host, and recorded in the run's folder; it is published in docs/scale-test.md only from a
-run on a quiet machine (`--publish-timings`).
+drivers and runs k6 (one virtual user per driver) and two consoles. Console A connects through
+nginx; the server names the instance serving it, and that instance is killed with SIGKILL halfway
+through. Console B connects straight to the other instance and must stay connected. The run then
+compares every fix stored in the database with what each console received. It fails on any lost
+event, on an empty k6 summary, when no fix was stored, when console A did not reconnect and
+resume, or when console B lost its connection. It reports how many batches had to be replayed
+(k6's duplicate answers and retries) and says when there were none, because only the end-to-end
+test forces that path. Latency is measured from the batch's `sentAt` to arrival at the console,
+on the same Docker host, and recorded in the run's folder; it is published in docs/scale-test.md
+only from a run on a quiet machine (`--publish-timings`).
 
-**Consequences.** The published claim is a count, reproducible by anyone with Docker. Latency
+**Consequences.** The published claim is a count for both consoles, reproducible by anyone with
+Docker. Whether a batch is in flight at the moment of the kill is chance at small scale, so the
+replay path is covered deterministically by the end-to-end test rather than by this run. Latency
 figures stay pending until a clean run exists.
 
 ## ADR-015 — Toolchain pins: TypeScript 6 and ESLint 9
@@ -297,3 +332,40 @@ read the results folder and talk to the stack.
 **Consequences.** The stack behaves the same on Linux, macOS and Windows. Running harness
 containers as root is acceptable for a local test harness; the application images themselves
 run as an unprivileged user.
+
+## ADR-017 — The console reloads drivers and deliveries on every connection
+
+**Context.** Only location fixes go through the Redis stream a console resumes from. Delivery
+changes and driver status changes sent while a console was disconnected were lost: after a
+failover the console kept a cancelled delivery as open, missed new ones and counted drivers
+wrongly until the page was reloaded. A failed first load was not retried either.
+
+**Decision.** On every connection, the first and each reconnect, the console reloads drivers and
+deliveries over HTTP, retrying with backoff and saying so while it fails. Status and delivery
+events that arrive during the reload are applied again after it. Deliveries carry `updatedAt`
+(set with `clock_timestamp()` after the row lock), and the console keeps the newest version of each
+delivery whichever path brought it; positions keep the newest fix. The logic lives in
+`apps/web/lib/dispatch-feed.ts`, outside React, and is unit-tested with a fake socket; a Playwright
+test drops the console's WebSocket, changes deliveries while reconnecting is refused and checks
+them after the reconnect.
+
+**Consequences.** After a reconnect the console shows the current state of every driver and of the
+last 200 deliveries, at the cost of two HTTP requests per reconnect. It does not show the changes
+made while it was away one by one; the delivery's own history (its events) has them. Putting
+delivery and status events into a resumable stream as well would give that, with more moving
+parts; it is not needed for a console that shows current state.
+
+## ADR-018 — The uuid advisory in Expo's build tooling is accepted
+
+**Context.** `npm audit` reports GHSA-w5hq-g745-h8pq (moderate) for `uuid` 7.0.3, which `xcode`
+3.0.1 pulls in through `@expo/config-plugins`; npm counts it once per dependent package, 10 in
+all. The flaw is a missing bounds check in `v3`, `v5` and `v6` when the caller passes a buffer.
+
+**Decision.** Accept it for now. `xcode` calls only `uuid.v4()` without a buffer, and the code runs
+only in Expo's build tooling (config plugins, prebuild), never in the API, the web app or the
+driver app's bundle. An npm `overrides` entry for `uuid` 11.1.1 was tried: npm did not apply it
+through the workspace link, and a hand-edited lockfile made `npm ls` report the tree as invalid,
+so it was not kept. Dependabot's Expo group will propose the fixed Expo release.
+
+**Consequences.** `npm audit` is not clean, and the README says why. The finding is reviewed again
+when Expo updates `@expo/config-plugins` or `xcode`.

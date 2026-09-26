@@ -10,7 +10,7 @@ import { ApiError } from './api-client.js';
 /** A drawn parcel stands in for the photo a phone would take. */
 const PHOTO = demoParcelPhoto();
 
-/** Demo depot in Al Quoz industrial area; drop-offs are spread around the simulated routes. */
+/** Demo depot in Al Quoz Industrial 1; drop-offs are in the neighbourhoods around it. */
 const DEPOT: LatLng = { lat: 25.1415, lng: 55.2263 };
 const RECIPIENTS = [
   'Aisha Rahman',
@@ -20,13 +20,23 @@ const RECIPIENTS = [
   'Mariam Saleh',
   'Khalid Aziz',
 ];
-const AREAS = [
-  'Al Barsha 2',
-  'Jumeirah 3',
-  'Business Bay',
-  'Al Garhoud',
-  'Umm Suqeim 1',
-  'Dubai Marina',
+
+/**
+ * Neighbourhoods 1.5-6 km from the depot, at their OpenStreetMap place nodes (© OpenStreetMap
+ * contributors, ODbL), so an order's address names the area its drop-off pin is in.
+ */
+const AREAS: readonly { name: string; centre: LatLng }[] = [
+  { name: 'Al Safa 2', centre: { lat: 25.1598, lng: 55.2264 } },
+  { name: 'Umm Suqeim 2', centre: { lat: 25.1501, lng: 55.2057 } },
+  { name: 'Al Quoz Industrial 3', centre: { lat: 25.1251, lng: 55.2184 } },
+  { name: 'Al Quoz 3', centre: { lat: 25.1588, lng: 55.2428 } },
+  { name: 'Umm Suqeim 3', centre: { lat: 25.1375, lng: 55.1958 } },
+  { name: 'Al Safa 1', centre: { lat: 25.1775, lng: 55.2389 } },
+  { name: 'Jumeirah 3', centre: { lat: 25.1807, lng: 55.2282 } },
+  { name: 'Al Barsha 2', centre: { lat: 25.1024, lng: 55.2161 } },
+  { name: 'Al Barsha 1', centre: { lat: 25.1091, lng: 55.1955 } },
+  { name: 'Business Bay', centre: { lat: 25.1795, lng: 55.2684 } },
+  { name: 'Al Quoz 4', centre: { lat: 25.1509, lng: 55.2541 } },
 ];
 
 export interface DemoOptions {
@@ -50,13 +60,16 @@ interface DriverState {
 /** About 50 km/h in town. */
 const DELIVERY_SPEED_MPS = 14;
 
-/** A random point 1.5–6 km from the depot, so a delivery takes minutes rather than an hour. */
-function randomDropoff(): LatLng {
-  const distance = 1_500 + Math.random() * 4_500;
+/** A random point within 500 m of an area's centre. */
+function randomDropoff(centre: LatLng): LatLng {
+  const distance = Math.random() * 500;
   const bearing = Math.random() * 2 * Math.PI;
   const dLat = (distance * Math.cos(bearing)) / 111_320;
-  const dLng = (distance * Math.sin(bearing)) / (111_320 * Math.cos((DEPOT.lat * Math.PI) / 180));
-  return { lat: Number((DEPOT.lat + dLat).toFixed(6)), lng: Number((DEPOT.lng + dLng).toFixed(6)) };
+  const dLng = (distance * Math.sin(bearing)) / (111_320 * Math.cos((centre.lat * Math.PI) / 180));
+  return {
+    lat: Number((centre.lat + dLat).toFixed(6)),
+    lng: Number((centre.lng + dLng).toFixed(6)),
+  };
 }
 
 /**
@@ -86,15 +99,15 @@ export async function demo(fleet: Fleet, options: DemoOptions): Promise<void> {
     if (started - lastOrder >= options.newDeliveryEverySeconds * 1000) {
       lastOrder = started;
       orderNumber += 1;
-      const area = AREAS[orderNumber % AREAS.length] ?? 'Dubai';
+      const area = AREAS[orderNumber % AREAS.length] ?? AREAS[0];
       try {
         const delivery = await options.dispatcher.createDelivery({
           orderReference: `DEMO-${String(orderNumber).padStart(6, '0')}`,
           recipientName: RECIPIENTS[orderNumber % RECIPIENTS.length] ?? 'Customer',
           recipientPhone: '+971 50 000 0000',
-          address: `Villa ${String(1 + (orderNumber % 40))}, ${area}, Dubai`,
+          address: `Villa ${String(1 + (orderNumber % 40))}, ${area?.name ?? 'Al Quoz'}, Dubai`,
           pickup: DEPOT,
-          dropoff: randomDropoff(),
+          dropoff: randomDropoff(area?.centre ?? DEPOT),
           autoAssign: true,
         });
         log(

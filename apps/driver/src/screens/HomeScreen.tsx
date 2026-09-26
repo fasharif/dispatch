@@ -2,8 +2,14 @@ import type { DeliveryDto, DriverDto } from '@dispatch/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { ApiError, type DriverApi } from '../api/client';
-import { requestLocationPermissions, startTracking, stopTracking } from '../location/tracking';
-import { getQueue, syncQueue } from '../queue/instance';
+import { LOCATION_POLICY, heartbeatDue } from '../location/policy';
+import {
+  currentPosition,
+  requestLocationPermissions,
+  startTracking,
+  stopTracking,
+} from '../location/tracking';
+import { getQueue, recordFixes, syncQueue } from '../queue/instance';
 import type { ReplayResult } from '../queue/replay';
 import { ui } from './styles';
 
@@ -75,6 +81,25 @@ export function HomeScreen({ api, onProof, onUnauthorized }: HomeScreenProps) {
     };
   }, [api, reload, refresh, onUnauthorized]);
 
+  const onShift = driver !== null && driver.status !== 'offline';
+
+  // Heartbeat while the app is open on shift: if the operating system has reported no position
+  // for a while (a driver standing still), ask for one, so the driver stays assignable.
+  useEffect(() => {
+    if (!onShift) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        const queue = await getQueue();
+        if (!heartbeatDue(await queue.lastRecordedAt(), Date.now())) return;
+        const position = await currentPosition();
+        await recordFixes([{ ...position, recordedAt: new Date() }]);
+      })().catch(() => undefined);
+    }, LOCATION_POLICY.heartbeatMs);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [onShift]);
+
   const toggleShift = async () => {
     if (!driver) return;
     try {
@@ -124,7 +149,6 @@ export function HomeScreen({ api, onProof, onUnauthorized }: HomeScreenProps) {
     ]);
   };
 
-  const onShift = driver !== null && driver.status !== 'offline';
   return (
     <ScrollView contentContainerStyle={ui.screen}>
       <Text style={ui.title}>{driver?.name ?? 'dispatch driver'}</Text>

@@ -1,9 +1,10 @@
-import type {
-  DeliveryDto,
-  DriverDto,
-  DriverLocationEvent,
-  DriverPosition,
-  DriverStatusEvent,
+import {
+  DEFAULT_DRIVER_STALE_AFTER_S,
+  type DeliveryDto,
+  type DriverDto,
+  type DriverLocationEvent,
+  type DriverPosition,
+  type DriverStatusEvent,
 } from '@dispatch/shared';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting';
@@ -136,6 +137,10 @@ export function consoleReducer(state: ConsoleState, action: ConsoleAction): Cons
 }
 
 /** Is the driver's last fix too old to trust for assignment? */
-export function isStale(driver: DriverDto, now: number, staleAfterMs = 120_000): boolean {
+export function isStale(
+  driver: DriverDto,
+  now: number,
+  staleAfterMs = DEFAULT_DRIVER_STALE_AFTER_S * 1000,
+): boolean {
   return !driver.position || now - new Date(driver.position.recordedAt).getTime() > staleAfterMs;
 }

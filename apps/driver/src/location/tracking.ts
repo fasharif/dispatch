@@ -1,9 +1,6 @@
 import * as Location from 'expo-location';
 import { LOCATION_TASK } from './background-task';
-
-/** A fix every 5 seconds or 10 metres while on shift. */
-const UPDATE_INTERVAL_MS = 5_000;
-const UPDATE_DISTANCE_M = 10;
+import { LOCATION_POLICY } from './policy';
 
 export type PermissionProblem = 'foreground-denied' | 'background-denied' | null;
 
@@ -20,8 +17,9 @@ export async function startTracking(): Promise<void> {
   if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) return;
   await Location.startLocationUpdatesAsync(LOCATION_TASK, {
     accuracy: Location.Accuracy.High,
-    timeInterval: UPDATE_INTERVAL_MS,
-    distanceInterval: UPDATE_DISTANCE_M,
+    // Time-based updates whether or not the driver moves (see policy.ts).
+    timeInterval: LOCATION_POLICY.timeIntervalMs,
+    distanceInterval: LOCATION_POLICY.distanceIntervalM,
     // Android: a visible notification keeps the service alive in the background.
     foregroundService: {
       notificationTitle: 'On shift',

@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { DriverApi } from '../api/client';
+import { LOCATION_POLICY } from '../location/policy';
 import { loadCredentials } from '../storage/credentials';
 import { openExpoSqlite } from './expo-sqlite';
 import { LocationQueue, type RawFix } from './location-queue';
@@ -10,7 +11,10 @@ let opening: Promise<LocationQueue> | null = null;
 /** The one queue of this JavaScript runtime, opened on first use. */
 export function getQueue(): Promise<LocationQueue> {
   opening ??= (async () => {
-    const queue = new LocationQueue(await openExpoSqlite(), { uuid: () => Crypto.randomUUID() });
+    const queue = new LocationQueue(await openExpoSqlite(), {
+      uuid: () => Crypto.randomUUID(),
+      minSpacingMs: LOCATION_POLICY.minSpacingMs,
+    });
     await queue.init();
     return queue;
   })();

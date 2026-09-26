@@ -1,3 +1,4 @@
+import { DEFAULT_DRIVER_STALE_AFTER_S } from '@dispatch/shared';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 
@@ -70,7 +71,12 @@ export const envSchema = z
     /** Reported GPS accuracy widens the fence by up to this many metres. */
     GEOFENCE_ACCURACY_ALLOWANCE_M: z.coerce.number().int().min(0).max(500).default(50),
     /** Drivers without a fix for longer than this are not auto-assigned. */
-    DRIVER_STALE_AFTER_S: z.coerce.number().int().min(10).max(3_600).default(120),
+    DRIVER_STALE_AFTER_S: z.coerce
+      .number()
+      .int()
+      .min(10)
+      .max(3_600)
+      .default(DEFAULT_DRIVER_STALE_AFTER_S),
     /** Rejects fixes stamped this far in the future (device clock skew). */
     MAX_CLOCK_SKEW_S: z.coerce.number().int().min(0).max(3_600).default(120),
 

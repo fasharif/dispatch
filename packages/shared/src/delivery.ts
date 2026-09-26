@@ -57,5 +57,11 @@ export function assertTransition(from: DeliveryStatus, to: DeliveryStatus): void
 }
 
 export const DRIVER_STATUSES = ['offline', 'available', 'busy'] as const;
+
+/**
+ * Default of the API's DRIVER_STALE_AFTER_S: a driver whose newest fix is older than this is not
+ * assigned automatically. The driver app's location policy is tested against it.
+ */
+export const DEFAULT_DRIVER_STALE_AFTER_S = 120;
 export const driverStatusSchema = z.enum(DRIVER_STATUSES);
 export type DriverStatus = z.infer<typeof driverStatusSchema>;

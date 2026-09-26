@@ -30,6 +30,11 @@ export interface QueueOptions {
    * offline. Beyond it the oldest fixes are dropped and counted, so storage cannot fill up.
    */
   maxQueued?: number;
+  /**
+   * A fix recorded less than this long after the previous recorded fix is skipped (not queued,
+   * no sequence number). 0 keeps every fix. The app uses LOCATION_POLICY.minSpacingMs.
+   */
+  minSpacingMs?: number;
 }
 
 const SCHEMA = `
@@ -70,6 +75,7 @@ const clampOptional = (
  */
 export class LocationQueue {
   private readonly maxQueued: number;
+  private readonly minSpacingMs: number;
   /** Serialises queue operations within this JavaScript runtime. */
   private tail: Promise<unknown> = Promise.resolve();
 
@@ -78,6 +84,7 @@ export class LocationQueue {
     private readonly options: QueueOptions,
   ) {
     this.maxQueued = options.maxQueued ?? 20_000;
+    this.minSpacingMs = options.minSpacingMs ?? 0;
   }
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
@@ -108,13 +115,21 @@ export class LocationQueue {
     );
   }
 
-  /** Stores fixes in order and gives each one its sequence number and idempotency key. */
+  /**
+   * Stores fixes in order and gives each one its sequence number and idempotency key. Fixes closer
+   * than minSpacingMs to the previous recorded one are skipped; the stored ones are returned.
+   */
   enqueue(fixes: readonly RawFix[]): Promise<LocationPoint[]> {
     return this.serial(() =>
       this.db.transaction(async (tx) => {
         let next = Number((await meta(tx, 'next_seq')) ?? '0');
+        const lastMeta = await meta(tx, 'last_recorded_at');
+        let last = lastMeta === null ? null : Number(lastMeta);
         const points: LocationPoint[] = [];
         for (const fix of fixes) {
+          const at = fix.recordedAt.getTime();
+          if (this.minSpacingMs > 0 && last !== null && at - last < this.minSpacingMs) continue;
+          last = last === null ? at : Math.max(last, at);
           const point: LocationPoint = {
             seq: next,
             idempotencyKey: this.options.uuid(),
@@ -144,6 +159,7 @@ export class LocationQueue {
           next += 1;
         }
         await setMeta(tx, 'next_seq', String(next));
+        if (last !== null) await setMeta(tx, 'last_recorded_at', String(last));
 
         const overflow = (await count(tx)) - this.maxQueued;
         if (overflow > 0) {
@@ -194,6 +210,14 @@ export class LocationQueue {
         await setMeta(tx, 'rejected', String(rejected));
       }),
     );
+  }
+
+  /** When the newest fix was recorded, whether or not it has been sent yet. */
+  lastRecordedAt(): Promise<Date | null> {
+    return this.serial(async () => {
+      const value = await meta(this.db, 'last_recorded_at');
+      return value === null ? null : new Date(Number(value));
+    });
   }
 
   stats(): Promise<{ queued: number; nextSeq: number; dropped: number; rejected: number }> {

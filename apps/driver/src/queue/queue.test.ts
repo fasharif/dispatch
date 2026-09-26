@@ -134,6 +134,24 @@ describe('LocationQueue', () => {
     expect((await queue.enqueue([fixAt(10)]))[0]?.seq).toBe(0);
   });
 
+  it('keeps at most one fix per minSpacingMs and remembers when the last was recorded', async () => {
+    const thinned = new LocationQueue(db, { uuid: randomUUID, minSpacingMs: 4_000 });
+    // iOS can report a position every second; 0, 5, 9 and 13 s are kept.
+    const kept = await thinned.enqueue([0, 1, 2, 3, 5, 6, 9, 10, 13].map((s) => fixAt(s)));
+    expect(kept.map((p) => p.recordedAt.slice(17, 19))).toEqual(['00', '05', '09', '13']);
+    expect(kept.map((p) => p.seq)).toEqual([0, 1, 2, 3]);
+    // The spacing holds across calls, from the last recorded fix.
+    expect(await thinned.enqueue([fixAt(15)])).toEqual([]);
+    expect(await thinned.enqueue([fixAt(17)])).toHaveLength(1);
+    expect(await thinned.lastRecordedAt()).toEqual(fixAt(17).recordedAt);
+  });
+
+  it('keeps every fix without a spacing', async () => {
+    const all = await queue.enqueue([fixAt(0), fixAt(1), fixAt(2)]);
+    expect(all).toHaveLength(3);
+    expect(await queue.lastRecordedAt()).toEqual(fixAt(2).recordedAt);
+  });
+
   it('drops the oldest fixes beyond its limit and counts them', async () => {
     const small = new LocationQueue(db, { uuid: randomUUID, maxQueued: 3 });
     await small.enqueue([fixAt(0), fixAt(1), fixAt(2), fixAt(3), fixAt(4)]);

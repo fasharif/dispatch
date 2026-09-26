@@ -52,6 +52,13 @@ export class AccessTokens {
   }
 
   async verify(token: string): Promise<DispatcherPrincipal> {
+    return (await this.verifySession(token)).dispatcher;
+  }
+
+  /** Verifies a token and also says when it expires (live connections close at that moment). */
+  async verifySession(
+    token: string,
+  ): Promise<{ dispatcher: DispatcherPrincipal; expiresAt: Date }> {
     try {
       const { payload } = await jwtVerify(token, this.key, {
         issuer: ISSUER,
@@ -61,11 +68,20 @@ export class AccessTokens {
       if (
         typeof payload.sub !== 'string' ||
         typeof payload.email !== 'string' ||
-        typeof payload.name !== 'string'
+        typeof payload.name !== 'string' ||
+        typeof payload.exp !== 'number'
       ) {
         throw new InvalidAccessToken('Token is missing claims');
       }
-      return { kind: 'dispatcher', id: payload.sub, email: payload.email, name: payload.name };
+      return {
+        dispatcher: {
+          kind: 'dispatcher',
+          id: payload.sub,
+          email: payload.email,
+          name: payload.name,
+        },
+        expiresAt: new Date(payload.exp * 1000),
+      };
     } catch (error) {
       if (error instanceof InvalidAccessToken) throw error;
       if (error instanceof joseErrors.JOSEError) throw new InvalidAccessToken(error.code);

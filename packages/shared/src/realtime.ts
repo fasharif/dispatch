@@ -35,6 +35,16 @@ export interface DriverStatusEvent {
   status: DriverStatus;
 }
 
+/**
+ * Sent to a dispatcher console once it is connected: which API instance serves the connection
+ * (for diagnostics and the scale test) and when its session ends. At that moment the server
+ * closes the connection, and the console must sign in again.
+ */
+export interface DispatchSession {
+  instanceId: string;
+  expiresAt: string;
+}
+
 export interface ResumeRequest {
   /** Newest stream id the client has seen, or null for "only what is new from now on". */
   since: string | null;
@@ -54,6 +64,7 @@ export interface ResumeResponse {
 }
 
 export interface DispatchServerToClientEvents {
+  session: (session: DispatchSession) => void;
   'driver:location': (event: DriverLocationEvent) => void;
   'driver:status': (event: DriverStatusEvent) => void;
   'delivery:updated': (delivery: DeliveryDto) => void;

@@ -1,11 +1,15 @@
-import type {
-  DeliveryDto,
-  DriverLocationEvent,
-  TrackingLinkDto,
-  TrackingResponse,
-  TrackingView,
-  WebhookEnvelope,
+import {
+  DISPATCH_NAMESPACE,
+  type DeliveryDto,
+  type DispatchSession,
+  type DriverLocationEvent,
+  type TrackingLinkDto,
+  type TrackingResponse,
+  type TrackingView,
+  type WebhookEnvelope,
 } from '@dispatch/shared';
+import { SignJWT, decodeJwt } from 'jose';
+import { io } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyWebhook } from '../../src/outbox/webhook-signature.js';
 import { TrackingTokens } from '../../src/tracking/tracking-tokens.js';
@@ -185,6 +189,35 @@ describe('delivery flow (e2e)', () => {
       `/v1/tracking/${signExpired(delivery.id).replace('v1.', 'v1.x')}`,
     );
     expect(tampered.status).toBe(404);
+  });
+
+  it('tells a console which instance serves it and closes the connection when its session ends', async () => {
+    // The same dispatcher, with a token that expires in two seconds.
+    const claims = decodeJwt(dispatcher.token ?? '');
+    const shortLived = await new SignJWT({ email: claims.email, name: claims.name })
+      .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+      .setSubject(claims.sub ?? '')
+      .setIssuer('dispatch-api')
+      .setAudience('dispatch-console')
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 2)
+      .sign(new TextEncoder().encode(t.config.auth.jwtSecret));
+
+    // Listeners go on before the connection opens: the server speaks first.
+    const socket: DispatchSocket = io(`${t.url}${DISPATCH_NAMESPACE}`, {
+      transports: ['websocket'],
+      auth: { token: shortLived },
+      reconnection: false,
+      forceNew: true,
+    });
+    const sessions = collect<DispatchSession>(socket, 'session');
+    const closed = new Promise<string>((resolve) => {
+      socket.once('disconnect', resolve);
+    });
+    await connected(socket);
+    await eventually(() => sessions.length === 1);
+    expect(sessions[0]?.instanceId).toBe('test');
+    expect(Date.parse(sessions[0]?.expiresAt ?? '')).toBeGreaterThan(Date.now());
+    expect(await closed).toBe('io server disconnect');
   });
 
   /** A link that expired a minute ago, signed with the test secret. */

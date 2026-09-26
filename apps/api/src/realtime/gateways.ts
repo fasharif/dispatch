@@ -17,6 +17,8 @@ import {
 import type { Namespace, Socket } from 'socket.io';
 import { z } from 'zod';
 import { AccessTokens } from '../auth/tokens.js';
+import { InjectConfig } from '../config/config.module.js';
+import type { AppConfig } from '../config/env.js';
 import { TrackingService } from '../tracking/tracking.service.js';
 import { LocationStream } from './location-stream.js';
 import { DISPATCHERS_ROOM, RealtimePublisher, trackingRoom } from './realtime.publisher.js';
@@ -31,19 +33,30 @@ function handshakeToken(socket: Socket): string | null {
   return typeof auth?.token === 'string' && auth.token.length <= 4096 ? auth.token : null;
 }
 
+/** Closes a socket at a moment in the future (a session or link expiry). */
+function closeAt(socket: Socket, expiresAt: number): void {
+  const timer = setTimeout(() => socket.disconnect(true), Math.max(0, expiresAt - Date.now()));
+  timer.unref();
+  socket.once('disconnect', () => {
+    clearTimeout(timer);
+  });
+}
+
 /**
  * Dispatcher consoles. A connection must present a dispatcher access token in the handshake
  * (`auth: { token }`); it then joins the dispatchers room and receives every driver position,
- * driver status change and delivery update.
+ * driver status change and delivery update. The server closes the connection when the token
+ * expires, as it would refuse the token on a new connection.
  */
 @WebSocketGateway({ namespace: DISPATCH_NAMESPACE })
-export class DispatchGateway implements OnGatewayInit {
+export class DispatchGateway implements OnGatewayInit, OnGatewayConnection {
   private readonly logger = new Logger(DispatchGateway.name);
 
   constructor(
     private readonly tokens: AccessTokens,
     private readonly stream: LocationStream,
     private readonly publisher: RealtimePublisher,
+    @InjectConfig() private readonly config: AppConfig,
   ) {}
 
   afterInit(namespace: Namespace<Record<string, never>, DispatchServerToClientEvents>): void {
@@ -54,9 +67,9 @@ export class DispatchGateway implements OnGatewayInit {
         next(new Error('unauthorized'));
         return;
       }
-      this.tokens.verify(token).then(
-        (dispatcher) => {
-          socket.data = { dispatcherId: dispatcher.id };
+      this.tokens.verifySession(token).then(
+        ({ dispatcher, expiresAt }) => {
+          socket.data = { dispatcherId: dispatcher.id, expiresAt: expiresAt.getTime() };
           void socket.join(DISPATCHERS_ROOM);
           next();
         },
@@ -64,6 +77,15 @@ export class DispatchGateway implements OnGatewayInit {
           next(new Error('unauthorized'));
         },
       );
+    });
+  }
+
+  handleConnection(socket: Socket<Record<string, never>, DispatchServerToClientEvents>): void {
+    const { expiresAt } = socket.data as { expiresAt: number };
+    closeAt(socket, expiresAt);
+    socket.emit('session', {
+      instanceId: this.config.instanceId,
+      expiresAt: new Date(expiresAt).toISOString(),
     });
   }
 
@@ -119,11 +141,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   ): Promise<void> {
     const { deliveryId, expiresAt } = socket.data as { deliveryId: string; expiresAt: number };
     await socket.join(trackingRoom(deliveryId));
-    const timer = setTimeout(() => socket.disconnect(true), Math.max(0, expiresAt - Date.now()));
-    timer.unref();
-    socket.once('disconnect', () => {
-      clearTimeout(timer);
-    });
+    closeAt(socket, expiresAt);
     const view = await this.tracking.view(deliveryId);
     if (view) socket.emit('tracking:update', view);
   }

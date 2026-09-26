@@ -160,7 +160,7 @@ services:
 
   osrm:
     profiles: [osrm]
-    image: ghcr.io/project-osrm/osrm-backend:v26.9.0
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
     container_name: dispatch-osrm
     command: ['osrm-routed', '--algorithm', 'mld', '--max-table-size', '1000', '/data/region.osrm']
     ports:

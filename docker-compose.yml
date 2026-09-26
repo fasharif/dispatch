@@ -8,7 +8,9 @@
 #   docker compose --profile osrm up -d osrm    OSRM for road-network ETAs (prepare the data first
 #                                               with scripts/prepare-osrm.sh)
 #
-# Host ports stay inside 57000-57599. Every container has a memory limit.
+# The stack is for one machine: published ports are bound to 127.0.0.1 only, because the database
+# password, the demo password and the example secrets below are public. Host ports stay inside
+# 57000-57599. Every container has a memory limit.
 name: dispatch
 
 x-api-env: &api-env
@@ -54,7 +56,7 @@ services:
       POSTGRES_PASSWORD: dispatch
       POSTGRES_DB: dispatch
     ports:
-      - '57432:5432'
+      - '127.0.0.1:57432:5432'
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -71,7 +73,7 @@ services:
     # BullMQ needs its keys to survive memory pressure: never evict, refuse writes instead.
     command: ['redis-server', '--maxmemory', '192mb', '--maxmemory-policy', 'noeviction']
     ports:
-      - '57379:6379'
+      - '127.0.0.1:57379:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 3s
@@ -148,7 +150,7 @@ services:
     image: nginx:1.30.5-alpine
     container_name: dispatch-nginx
     ports:
-      - '57080:80'
+      - '127.0.0.1:57080:80'
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
       - tiles:/srv/tiles:ro
@@ -164,7 +166,7 @@ services:
     container_name: dispatch-osrm
     command: ['osrm-routed', '--algorithm', 'mld', '--max-table-size', '1000', '/data/region.osrm']
     ports:
-      - '57500:5000'
+      - '127.0.0.1:57500:5000'
     volumes:
       - ./osrm/data:/data:ro
     mem_limit: 2g

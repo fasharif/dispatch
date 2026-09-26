@@ -119,23 +119,37 @@ export const envSchema = z
       });
     }
     if (env.NODE_ENV !== 'production' || env.ALLOW_INSECURE_LOCAL_SECRETS) return;
-    for (const key of ['JWT_SECRET', 'TRACKING_TOKEN_SECRET', 'WEBHOOK_SECRET'] as const) {
-      const value = env[key];
-      if (value && PUBLIC_EXAMPLE_SECRET.test(value)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [key],
-          message: `${key} is a published example value; generate a new secret for production`,
-        });
-      }
+    for (const key of exampleSecrets(env)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [key],
+        message: `${key} is a published example value; generate a new secret for production`,
+      });
     }
   });
+
+const SECRET_KEYS = ['JWT_SECRET', 'TRACKING_TOKEN_SECRET', 'WEBHOOK_SECRET'] as const;
+
+/** The secrets that hold one of the published example values. */
+function exampleSecrets(
+  env: Partial<Record<(typeof SECRET_KEYS)[number], string | undefined>>,
+): (typeof SECRET_KEYS)[number][] {
+  return SECRET_KEYS.filter((key) => {
+    const value = env[key];
+    return value !== undefined && PUBLIC_EXAMPLE_SECRET.test(value);
+  });
+}
 
 export type Env = z.infer<typeof envSchema>;
 
 export interface AppConfig {
   env: Env['NODE_ENV'];
   isProduction: boolean;
+  /**
+   * Published example secrets accepted in production because ALLOW_INSECURE_LOCAL_SECRETS is on
+   * (the compose stack on one's own machine). The process logs a warning naming them.
+   */
+  exampleSecretsAllowed: string[];
   port: number;
   role: Env['PROCESS_ROLE'];
   instanceId: string;
@@ -173,6 +187,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     env: env.NODE_ENV,
     isProduction: env.NODE_ENV === 'production',
+    exampleSecretsAllowed:
+      env.NODE_ENV === 'production' && env.ALLOW_INSECURE_LOCAL_SECRETS ? exampleSecrets(env) : [],
     port: env.PORT,
     role: env.PROCESS_ROLE,
     instanceId: env.INSTANCE_ID,

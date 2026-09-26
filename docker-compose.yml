@@ -17,10 +17,13 @@ x-api-env: &api-env
   NODE_ENV: production
   DATABASE_URL: postgresql://dispatch:dispatch@postgres:5432/dispatch
   REDIS_URL: redis://redis:6379
-  # Example secrets for a stack on your own machine. Production refuses these values.
+  # Example secrets for a stack on your own machine. NODE_ENV=production normally refuses these
+  # values; ALLOW_INSECURE_LOCAL_SECRETS turns that check off for this stack only, and the API logs
+  # a warning naming the example secrets in use. Set your own secrets and
+  # ALLOW_INSECURE_LOCAL_SECRETS=false before exposing the stack to anyone.
   JWT_SECRET: ${JWT_SECRET:-local-only-jwt-secret-change-me-0123456789}
   TRACKING_TOKEN_SECRET: ${TRACKING_TOKEN_SECRET:-local-only-tracking-secret-change-me-012345}
-  ALLOW_INSECURE_LOCAL_SECRETS: 'true'
+  ALLOW_INSECURE_LOCAL_SECRETS: ${ALLOW_INSECURE_LOCAL_SECRETS:-true}
   PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:57080}
   CORS_ORIGINS: ${PUBLIC_WEB_URL:-http://localhost:57080}
   TRUST_PROXY: 'true'

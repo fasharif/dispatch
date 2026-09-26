@@ -17,6 +17,13 @@ try {
   process.exit(1);
 }
 const logger = new Logger('Bootstrap');
+if (config.exampleSecretsAllowed.length > 0) {
+  logger.warn(
+    `ALLOW_INSECURE_LOCAL_SECRETS is on: ${config.exampleSecretsAllowed.join(', ')} ` +
+      'use published example values. Anyone can forge sessions or tracking links with them; ' +
+      'use this only for a stack on your own machine.',
+  );
+}
 
 if (config.role === 'api' || config.role === 'all') {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);

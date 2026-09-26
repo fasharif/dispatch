@@ -146,7 +146,7 @@ one is missing or malformed. The full list with defaults is in
 | Variable                                             | Default                                   | Purpose                                                            |
 | ---------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
 | `DATABASE_URL`, `REDIS_URL`                          | compose services on ports 57432 and 57379 | Data stores                                                        |
-| `JWT_SECRET`, `TRACKING_TOKEN_SECRET`                | none (examples in `.env.example`)         | 32+ characters each; production refuses the examples               |
+| `JWT_SECRET`, `TRACKING_TOKEN_SECRET`                | none (examples in `.env.example`)         | 32+ characters each; production refuses the examples (see below)   |
 | `PROCESS_ROLE`                                       | `all`                                     | `api` (HTTP and WebSockets), `worker` (outbox relay) or both       |
 | `PUBLIC_WEB_URL`, `CORS_ORIGINS`                     | `http://localhost:57300`                  | Base of tracking links; allowed browser origins                    |
 | `TRACKING_LINK_TTL_HOURS`                            | 48                                        | Lifetime of a customer tracking link                               |
@@ -156,6 +156,11 @@ one is missing or malformed. The full list with defaults is in
 | `WEBHOOK_URL`, `WEBHOOK_SECRET`                      | empty                                     | Where signed events go; empty keeps them in the outbox             |
 | `OSRM_URL`                                           | empty                                     | OSRM base URL for road ETAs; empty uses the straight-line estimate |
 | `AUTH_THROTTLE_LIMIT`, `THROTTLE_LIMIT`              | 10, 600 per minute                        | Rate limits for sign-in and enrolment, and for everything else     |
+
+The compose stack runs with `NODE_ENV=production` but sets `ALLOW_INSECURE_LOCAL_SECRETS=true` by
+default, so it starts with the example secrets on your own machine; the API then logs a warning
+naming them. Set your own secrets and `ALLOW_INSECURE_LOCAL_SECRETS=false` before anyone else can
+reach the stack.
 
 The web app reads `NEXT_PUBLIC_API_URL` (empty means same origin, as behind nginx) and
 `NEXT_PUBLIC_BASEMAP_URL` at build time ([`apps/web/.env.example`](apps/web/.env.example)).

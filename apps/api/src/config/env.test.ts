@@ -56,8 +56,15 @@ describe('loadConfig', () => {
       JWT_SECRET: 'change-me-dispatcher-session-secret-000000000000',
     };
     expect(() => loadConfig(example)).toThrow(/JWT_SECRET is a published example value/);
-    expect(() => loadConfig({ ...example, ALLOW_INSECURE_LOCAL_SECRETS: 'true' })).not.toThrow();
-    expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).not.toThrow();
+    // Allowed for a local stack, but named so the process can warn about them.
+    expect(
+      loadConfig({ ...example, ALLOW_INSECURE_LOCAL_SECRETS: 'true' }).exampleSecretsAllowed,
+    ).toEqual(['JWT_SECRET']);
+    expect(loadConfig({ ...base, NODE_ENV: 'production' }).exampleSecretsAllowed).toEqual([]);
+    expect(
+      loadConfig({ ...base, JWT_SECRET: example.JWT_SECRET, ALLOW_INSECURE_LOCAL_SECRETS: 'true' })
+        .exampleSecretsAllowed,
+    ).toEqual([]);
   });
 
   it('parses lists and strips trailing slashes', () => {

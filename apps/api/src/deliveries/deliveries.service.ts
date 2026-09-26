@@ -56,7 +56,7 @@ interface LockedDelivery {
   pickup_lng: number;
 }
 
-/** How many of the nearest free drivers an automatic assignment tries to lock, in order. */
+/** How many of the nearest free drivers an automatic assignment reads per KNN query. */
 const NEAREST_CANDIDATES = 10;
 
 interface NearbyDriverRow {
@@ -437,6 +437,7 @@ export class DeliveriesService {
     point: { lat: number; lng: number },
     limit: number,
     freshOnly: boolean,
+    exclude: readonly string[] = [],
   ): Promise<NearbyDriverRow[]> {
     // ORDER BY location <-> point walks the partial GiST index on available drivers nearest first.
     return rows<NearbyDriverRow>(
@@ -450,34 +451,42 @@ export class DeliveriesService {
         WHERE d.status = 'available'
           AND d.location IS NOT NULL
           ${freshOnly ? 'AND d.location_recorded_at >= now() - make_interval(secs => $3)' : ''}
+          AND NOT (d.id = ANY($5::uuid[]))
         ORDER BY d.location <-> ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography
         LIMIT $4`,
-      [point.lng, point.lat, this.config.drivers.staleAfterS, limit],
+      [point.lng, point.lat, this.config.drivers.staleAfterS, limit, exclude],
     );
   }
 
   /**
    * Finds the nearest free driver with the KNN query, then locks that driver by primary key with
    * FOR UPDATE SKIP LOCKED, re-checking that the driver is still free. If a concurrent assignment
-   * took the driver, the next nearest is tried. Locking by key rather than inside the index-ordered
-   * scan keeps the lock step simple and independent of the spatial index.
+   * took the driver, the next nearest is tried. Candidates are read ten at a time; when all ten
+   * are taken, the next ten beyond them are read, until no free driver with a fresh fix is left.
+   * Locking by key rather than inside the index-ordered scan keeps the lock step simple and
+   * independent of the spatial index.
    */
   private async lockNearestDriver(
     client: pg.ClientBase,
     pickup: { lat: number; lng: number },
   ): Promise<{ id: string; name: string; distanceMeters: number | null }> {
-    const candidates = await this.nearbyDrivers(client, pickup, NEAREST_CANDIDATES, true);
-    for (const candidate of candidates) {
-      const locked = await maybeOne<{ id: string }>(
-        client,
-        `SELECT id FROM drivers
-          WHERE id = $1 AND status = 'available'
-            AND location_recorded_at >= now() - make_interval(secs => $2)
-          FOR UPDATE SKIP LOCKED`,
-        [candidate.id, this.config.drivers.staleAfterS],
-      );
-      if (locked) {
-        return { id: candidate.id, name: candidate.name, distanceMeters: candidate.distance_m };
+    const tried: string[] = [];
+    for (;;) {
+      const candidates = await this.nearbyDrivers(client, pickup, NEAREST_CANDIDATES, true, tried);
+      if (candidates.length === 0) break;
+      for (const candidate of candidates) {
+        tried.push(candidate.id);
+        const locked = await maybeOne<{ id: string }>(
+          client,
+          `SELECT id FROM drivers
+            WHERE id = $1 AND status = 'available'
+              AND location_recorded_at >= now() - make_interval(secs => $2)
+            FOR UPDATE SKIP LOCKED`,
+          [candidate.id, this.config.drivers.staleAfterS],
+        );
+        if (locked) {
+          return { id: candidate.id, name: candidate.name, distanceMeters: candidate.distance_m };
+        }
       }
     }
     throw new ConflictException({

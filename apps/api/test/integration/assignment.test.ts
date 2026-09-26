@@ -111,6 +111,35 @@ describe('driver assignment', () => {
     expect(results.find((r) => r.status === 409)?.body.code).toBe('NO_DRIVER_AVAILABLE');
   });
 
+  it('looks beyond the ten nearest drivers when all of them are taken', async () => {
+    const drivers = [];
+    for (let i = 0; i < 12; i += 1) {
+      const driver = await enrolDriver(dispatcher, `Driver ${String(i).padStart(2, '0')}`);
+      // Each one about 110 m further from the pickup than the one before.
+      await moveTo(driver, NEAR.lat + i * 0.001, NEAR.lng);
+      drivers.push(driver);
+    }
+    const delivery = await createDelivery(dispatcher);
+
+    // Concurrent assignments hold the ten nearest drivers' row locks.
+    const others = await t.db.pool.connect();
+    try {
+      await others.query('BEGIN');
+      await others.query('SELECT id FROM drivers WHERE id = ANY($1::uuid[]) FOR UPDATE', [
+        drivers.slice(0, 10).map((d) => d.id),
+      ]);
+      const assigned = await dispatcher.post<DeliveryDto>(
+        `/v1/deliveries/${delivery.id}/assign`,
+        {},
+      );
+      expect(assigned.status).toBe(200);
+      expect(assigned.body.driver?.name).toBe('Driver 10');
+    } finally {
+      await others.query('ROLLBACK');
+      others.release();
+    }
+  });
+
   it('lets a dispatcher override the choice and re-assign before pickup', async () => {
     const near = await enrolDriver(dispatcher, 'Near Driver');
     const far = await enrolDriver(dispatcher, 'Far Driver');

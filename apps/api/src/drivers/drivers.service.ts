@@ -112,15 +112,20 @@ export class DriversService {
   /** Starts or ends a shift. A driver with a delivery in hand cannot go off shift. */
   async setShift(device: DevicePrincipal, input: ShiftInput): Promise<DriverDto> {
     const status = await this.db.tx(async (client) => {
-      const current = await maybeOne<{ status: DriverStatus; active: boolean }>(
+      const locked = await maybeOne<{ id: string }>(
         client,
-        `SELECT status,
-                EXISTS (SELECT 1 FROM deliveries x
-                         WHERE x.driver_id = d.id AND x.status IN ('assigned', 'picked_up')) AS active
-           FROM drivers d WHERE id = $1 FOR UPDATE`,
+        'SELECT id FROM drivers WHERE id = $1 FOR UPDATE',
         [device.driverId],
       );
-      if (!current) throw new NotFoundException('Driver not found');
+      if (!locked) throw new NotFoundException('Driver not found');
+      // A separate statement after the lock: an assignment that held the lock while this request
+      // waited has committed by now, and only a new statement's snapshot sees its delivery.
+      const current = await one<{ active: boolean }>(
+        client,
+        `SELECT EXISTS (SELECT 1 FROM deliveries
+                         WHERE driver_id = $1 AND status IN ('assigned', 'picked_up')) AS active`,
+        [device.driverId],
+      );
       if (!input.onShift && current.active) {
         throw new ConflictException(
           'Finish or hand back your current delivery before ending your shift',

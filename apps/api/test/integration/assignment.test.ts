@@ -4,6 +4,7 @@ import {
   Api,
   createDelivery,
   enrolDriver,
+  eventually,
   moveTo,
   resetState,
   startApp,
@@ -212,5 +213,46 @@ describe('driver assignment', () => {
     });
     expect(failed.body.status).toBe('failed');
     expect((await mine.api.post('/v1/driver/shift', { onShift: false })).status).toBe(200);
+  });
+
+  it('refuses to end a shift when an assignment commits while the request waits for the driver', async () => {
+    const driver = await enrolDriver(dispatcher, 'Racing Driver');
+    await moveTo(driver, NEAR.lat, NEAR.lng);
+    const delivery = await createDelivery(dispatcher);
+
+    // An assignment in progress holds the driver's row lock, as DeliveriesService.assign does.
+    const assignment = await t.db.pool.connect();
+    try {
+      await assignment.query('BEGIN');
+      await assignment.query('SELECT id FROM drivers WHERE id = $1 FOR UPDATE', [driver.id]);
+      await assignment.query(
+        `UPDATE deliveries SET status = 'assigned', driver_id = $2, assignment_mode = 'manual',
+                assigned_at = now(), updated_at = now() WHERE id = $1`,
+        [delivery.id, driver.id],
+      );
+      await assignment.query(`UPDATE drivers SET status = 'busy' WHERE id = $1`, [driver.id]);
+
+      // Meanwhile the driver ends the shift; the request waits for the lock.
+      const ending = driver.api.post<{ message: string }>('/v1/driver/shift', { onShift: false });
+      await eventually(async () => {
+        const waiting = await t.db.one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        return waiting.n > 0;
+      });
+      await assignment.query('COMMIT');
+
+      const answer = await ending;
+      expect(answer.status).toBe(409);
+      expect(answer.body.message).toMatch(/current delivery/);
+    } finally {
+      assignment.release();
+    }
+    const drivers = (await dispatcher.get<DriverDto[]>('/v1/drivers')).body;
+    expect(drivers.find((d) => d.id === driver.id)).toMatchObject({
+      status: 'busy',
+      activeDeliveryId: delivery.id,
+    });
   });
 });

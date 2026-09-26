@@ -216,6 +216,11 @@ label.checkbox input {
   background: var(--danger);
 }
 
+.dot.driver-deactivated {
+  background: transparent;
+  border: 1px solid var(--off);
+}
+
 .dot.pickup {
   background: var(--pickup);
 }
@@ -351,6 +356,29 @@ label.checkbox input {
 
 .inline-form {
   display: flex;
+  gap: 0.4rem;
+}
+
+.list > li.driver-item {
+  align-items: flex-start;
+}
+
+.driver-item > .dot {
+  margin-top: 0.35rem;
+}
+
+.driver-devices {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.driver-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
 }
 

@@ -49,6 +49,8 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
   useDispatchFeed(token, dispatch, loadSnapshot, onSignOut);
 
   const drivers = useMemo(() => Object.values(state.drivers), [state.drivers]);
+  // Deactivated drivers stay in the Drivers tab (their deliveries name them) but leave the map.
+  const activeDrivers = useMemo(() => drivers.filter((d) => d.deactivatedAt === null), [drivers]);
   const deliveries = useMemo(
     () =>
       Object.values(state.deliveries)
@@ -65,9 +67,9 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
   const selected = selectedId ? (state.deliveries[selectedId] ?? null) : null;
   const counts = useMemo(() => {
     const byStatus = { available: 0, busy: 0, offline: 0 };
-    for (const driver of drivers) byStatus[driver.status] += 1;
+    for (const driver of activeDrivers) byStatus[driver.status] += 1;
     return byStatus;
-  }, [drivers]);
+  }, [activeDrivers]);
 
   const pick = useCallback((point: LatLng) => {
     setDraft((current) =>
@@ -184,7 +186,7 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
           <DriversPanel
             drivers={drivers}
             token={token}
-            onCreated={(driver) => dispatch({ type: 'driver/upserted', driver })}
+            onChanged={(driver) => dispatch({ type: 'driver/upserted', driver })}
           />
         )}
         {tab === 'webhooks' && <WebhooksPanel token={token} />}
@@ -192,7 +194,7 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
 
       <main className="map-area">
         <ConsoleMap
-          drivers={drivers}
+          drivers={activeDrivers}
           selected={selected}
           placing={placing}
           draft={draft}

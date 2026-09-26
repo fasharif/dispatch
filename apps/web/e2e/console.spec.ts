@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { signIn } from './support';
+import { API_URL, signIn } from './support';
 
 test.describe('dispatcher console', () => {
   test('refuses a wrong password with a clear message', async ({ page }) => {
@@ -21,17 +21,48 @@ test.describe('dispatcher console', () => {
     await expect(page.locator('.maplibregl-canvas')).toBeVisible();
   });
 
-  test('adds a driver and shows the one-time enrolment code', async ({ page }) => {
+  test('adds a driver, then revokes the enrolled phone and deactivates the driver', async ({
+    page,
+    request,
+  }) => {
     await signIn(page);
     await page.getByRole('tab', { name: 'Drivers' }).click();
     const name = `Browser Test ${String(Date.now())}`;
     await page.getByLabel('Driver name').fill(name);
     await page.getByLabel('Vehicle').fill('Van 7');
     await page.getByRole('button', { name: 'Add' }).click();
-    await expect(
-      page.getByRole('status').filter({ hasText: `Enrolment code for ${name}` }),
-    ).toContainText(/[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}/);
+    const notice = page.getByRole('status').filter({ hasText: `Enrolment code for ${name}` });
+    await expect(notice).toContainText(/[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}/);
     await expect(page.getByText(name, { exact: true })).toBeVisible();
+
+    // The driver types the code into the app; here the API call the app makes.
+    const code = (await notice.locator('.code').textContent()) ?? '';
+    const enrolled = await request.post(`${API_URL}/v1/devices/enrol`, {
+      data: { code, deviceName: 'Test phone' },
+    });
+    expect(enrolled.status()).toBe(201);
+    const device = {
+      authorization: `Bearer ${((await enrolled.json()) as { deviceToken: string }).deviceToken}`,
+    };
+    expect((await request.get(`${API_URL}/v1/driver/me`, { headers: device })).status()).toBe(200);
+
+    // The phone is lost: the dispatcher revokes it, and its token stops working at once.
+    await page.getByRole('button', { name: `Phones and access for ${name}` }).click();
+    const phones = page.getByRole('group', { name: `Phones of ${name}` });
+    await expect(phones.getByText('Test phone')).toBeVisible();
+    page.once('dialog', (dialog) => void dialog.accept());
+    await phones.getByRole('button', { name: 'Revoke' }).click();
+    await expect(phones.getByText(/^Revoked /)).toBeVisible();
+    expect((await request.get(`${API_URL}/v1/driver/me`, { headers: device })).status()).toBe(401);
+
+    // The driver leaves: deactivated, kept in the list for the deliveries that name them.
+    page.once('dialog', (dialog) => void dialog.accept());
+    await phones.getByRole('button', { name: 'Deactivate driver' }).click();
+    const item = page.locator('li.driver-item').filter({ hasText: name });
+    await expect(item).toContainText(/Deactivated \d+ \w+/);
+    await expect(page.getByRole('button', { name: `Phones and access for ${name}` })).toHaveCount(
+      0,
+    );
   });
 
   test('creates a delivery by clicking pickup and drop-off on the map', async ({ page }) => {

@@ -1,11 +1,13 @@
 'use client';
 
 import {
+  AttributionControl,
   Map as MaplibreMap,
   NavigationControl,
   addProtocol,
   setRTLTextPlugin,
   setWorkerUrl,
+  type ControlPosition,
   type StyleSpecification,
 } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -48,8 +50,15 @@ interface MapCanvasProps {
   ariaLabel: string;
   className?: string;
   zoom?: number;
+  /**
+   * Where the zoom buttons and the map data credit go. The credit is always shown in full
+   * (OpenStreetMap's licence asks for a visible credit), so it must sit where nothing covers it.
+   */
+  controls?: { navigation: ControlPosition; attribution: ControlPosition };
   onReady: (map: MaplibreMap, basemap: BasemapKind) => void;
 }
+
+const DEFAULT_CONTROLS = { navigation: 'top-right', attribution: 'bottom-right' } as const;
 
 /**
  * A MapLibre map in a div. It loads the Protomaps extract when the server has it, and otherwise
@@ -60,9 +69,11 @@ export function MapCanvas({
   ariaLabel,
   className,
   zoom = 10.5,
+  controls = DEFAULT_CONTROLS,
   onReady,
 }: MapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
+  const { navigation, attribution } = controls;
   const ready = useRef(onReady);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -88,14 +99,15 @@ export function MapCanvas({
           style,
           center: DUBAI_CENTRE,
           zoom: hasExtract ? zoom : 6,
-          attributionControl: { compact: true },
+          attributionControl: false,
         });
       } catch {
         setFailed(true);
         return;
       }
       map = created;
-      created.addControl(new NavigationControl({ showCompass: false }), 'top-right');
+      created.addControl(new NavigationControl({ showCompass: false }), navigation);
+      created.addControl(new AttributionControl({ compact: false }), attribution);
       created.once('load', () => {
         if (cancelled) return;
         setLoaded(true);
@@ -106,7 +118,7 @@ export function MapCanvas({
       cancelled = true;
       map?.remove();
     };
-  }, [lang, zoom]);
+  }, [lang, zoom, navigation, attribution]);
 
   return (
     <div

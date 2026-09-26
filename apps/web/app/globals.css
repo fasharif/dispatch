@@ -407,7 +407,8 @@ label.checkbox input {
 .map-notice {
   position: absolute;
   inset-block-start: 0.75rem;
-  inset-inline-start: 0.75rem;
+  /* Clear of the zoom buttons in the top-left corner. */
+  inset-inline-start: 3.25rem;
   margin: 0;
   max-width: 28rem;
   background: #fff8c5;

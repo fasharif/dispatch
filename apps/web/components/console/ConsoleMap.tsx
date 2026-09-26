@@ -81,6 +81,12 @@ function selectionFeatures(
 }
 
 /** Driver markers coloured by status, the selected delivery and its driver's straight line to go. */
+/**
+ * The delivery and new-delivery panels cover the right-hand side of the map, so the zoom buttons
+ * and the OpenStreetMap credit go on the left, where nothing covers them.
+ */
+const CONSOLE_CONTROLS = { navigation: 'top-left', attribution: 'bottom-left' } as const;
+
 export function ConsoleMap({
   drivers,
   selected,
@@ -212,6 +218,7 @@ export function ConsoleMap({
     <MapCanvas
       className="console-map"
       ariaLabel="Live map of drivers and deliveries"
+      controls={CONSOLE_CONTROLS}
       onReady={handleReady}
     />
   );

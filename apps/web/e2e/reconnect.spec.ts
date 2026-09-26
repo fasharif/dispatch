@@ -1,5 +1,5 @@
-import { expect, test, type WebSocketRoute } from '@playwright/test';
-import { API_URL, apiToken, signIn } from './support';
+import type { WebSocketRoute } from '@playwright/test';
+import { API_URL, apiToken, expect, signIn, test } from './support';
 
 /**
  * The console's WebSocket is routed through Playwright, so the test can drop the connection and

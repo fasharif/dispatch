@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { deliveryWithLink } from './support';
+import { deliveryWithLink, expect, test, watchCsp } from './support';
 
 test.describe('customer tracking page', () => {
   test('follows the browser language: Arabic, right to left', async ({ browser, request }) => {
@@ -9,6 +8,7 @@ test.describe('customer tracking page', () => {
       extraHTTPHeaders: { 'accept-language': 'ar-AE,ar;q=0.9,en;q=0.5' },
     });
     const page = await context.newPage();
+    const violations = watchCsp(page);
     await page.goto(`/track/${token}`);
 
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
@@ -21,6 +21,7 @@ test.describe('customer tracking page', () => {
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Delivery tracking');
     await expect(page.getByRole('heading', { level: 2 })).toHaveText('Being prepared');
+    expect(violations).toEqual([]);
     await context.close();
   });
 

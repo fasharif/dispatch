@@ -1,4 +1,29 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
+
+/** Records Content-Security-Policy violations the browser reports on a page. */
+export function watchCsp(page: Page): string[] {
+  const violations: string[] = [];
+  page.on('console', (message) => {
+    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+  });
+  return violations;
+}
+
+/**
+ * Playwright's test, failing any test whose page reported a Content-Security-Policy violation, so
+ * a policy that blocks the map, the API or the live feed cannot pass unnoticed.
+ */
+export const test = base.extend<{ cspViolations: string[] }>({
+  cspViolations: [
+    async ({ page }, use) => {
+      const violations = watchCsp(page);
+      await use(violations);
+      expect(violations, 'Content-Security-Policy violations').toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+export { expect };
 
 export const API_URL = process.env.API_URL ?? 'http://localhost:57100';
 export const EMAIL = process.env.DISPATCH_EMAIL ?? 'dispatcher@dispatch.local';

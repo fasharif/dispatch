@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { API_URL, signIn } from './support';
+import { API_URL, expect, signIn, test } from './support';
 
 test.describe('dispatcher console', () => {
   test('refuses a wrong password with a clear message', async ({ page }) => {

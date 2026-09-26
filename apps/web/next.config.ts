@@ -2,8 +2,9 @@ import type { NextConfig } from 'next';
 import { fileURLToPath } from 'node:url';
 
 const nextConfig: NextConfig = {
-  // A self-contained server bundle for the Docker image.
-  output: 'standalone',
+  // A self-contained server bundle for the Docker image (its Dockerfile sets NEXT_OUTPUT).
+  // Elsewhere the regular build, so `next start` serves it.
+  ...(process.env.NEXT_OUTPUT === 'standalone' ? { output: 'standalone' as const } : {}),
   // The monorepo root, so the standalone bundle includes the workspace packages.
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   reactStrictMode: true,

@@ -21,6 +21,7 @@ ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_BASEMAP_URL=/tiles/dubai.pmtiles
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     NEXT_PUBLIC_BASEMAP_URL=${NEXT_PUBLIC_BASEMAP_URL} \
+    NEXT_OUTPUT=standalone \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build -w @dispatch/shared && npm run build -w @dispatch/web
 

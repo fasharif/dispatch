@@ -57,8 +57,9 @@ distort them. The latency columns are filled by a run on a quiet machine with
 
 <!-- results:start -->
 
-| Run | Drivers | Duration | Fix interval | Instance killed | Fixes stored | Fixes received | Lost | Resumes | p95 latency, all fixes | p95 latency, live fixes |
-| --- | ------- | -------- | ------------ | --------------- | ------------ | -------------- | ---- | ------- | ---------------------- | ----------------------- |
+| Run              | Drivers | Duration | Fix interval | Instance killed          | Fixes stored | Fixes received | Lost | Resumes | p95 latency, all fixes      | p95 latency, live fixes     | Environment                                                            |
+| ---------------- | ------- | -------- | ------------ | ------------------------ | ------------ | -------------- | ---- | ------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| 20260925T234728Z | 50      | 120 s    | 3 s          | api-1 (SIGKILL, mid-run) | 1861         | 1861           | 0    | 1       | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit 475f9ae |
 
 <!-- results:end -->
 

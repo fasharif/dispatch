@@ -27,6 +27,8 @@ const ms = (value) => (value === null || value === undefined ? 'n/a' : `${Math.r
 const timing = (value) => (publishTimings ? ms(value) : 'pending (quiet-machine run)');
 const gib = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
+const environment = `${run.host.os}, Docker ${run.host.dockerServerVersion}, ${run.host.dockerCpus} CPUs, ${gib(run.host.dockerMemoryBytes)}; commit ${run.gitCommit}`;
+
 const row = [
   run.run,
   run.drivers,
@@ -39,6 +41,7 @@ const row = [
   listen.resumes,
   timing(listen.latencyAllMs.p95),
   timing(listen.latencyLiveMs.p95),
+  environment,
 ];
 
 const summary = `# Scale test ${run.run}

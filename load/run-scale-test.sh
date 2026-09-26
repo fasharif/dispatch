@@ -51,7 +51,8 @@ docker build -q -f apps/api/Dockerfile --target tools -t dispatch-tools:local . 
 AUTH_THROTTLE_LIMIT=100000 docker compose --profile stack up -d --build --wait \
   postgres redis migrate api-1 api-2 worker nginx >/dev/null
 
-# The harness containers run as root so they can write to the bind-mounted results folder.
+# The harness containers run as root: they share the results folder, where the fleet file (device
+# tokens) is readable by its owner only, and non-root users cannot read bind mounts on every host.
 tools() {
   docker run --rm --user root --network "$NETWORK" --memory 256m \
     -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local "$@"
@@ -68,7 +69,7 @@ docker run -d --name dispatch-listener --user root --network "$NETWORK" --memory
 sleep 3
 
 log "Running k6: $DRIVERS drivers, a fix every ${INTERVAL}s, for ${DURATION}s"
-docker run -d --name dispatch-k6 --network "$NETWORK" --memory 512m \
+docker run -d --name dispatch-k6 --user root --network "$NETWORK" --memory 512m \
   -v "$LOAD_HOST:/scripts:ro" -v "$RESULTS_HOST:/results:ro" \
   -e FLEET=/results/fleet.json -e API_URL=http://nginx \
   -e DURATION="${DURATION}s" -e INTERVAL_S="$INTERVAL" \
@@ -80,7 +81,12 @@ log "Killing dispatch-api-1 (SIGKILL) mid-test"
 docker kill --signal KILL dispatch-api-1 >/dev/null
 
 docker wait dispatch-k6 >/dev/null
-docker logs dispatch-k6 2>/dev/null | tail -n 1 > "$RESULTS/k6-summary.json"
+docker logs dispatch-k6 > "$RESULTS/k6.log" 2>&1 || true
+grep '^{' "$RESULTS/k6.log" | tail -n 1 > "$RESULTS/k6-summary.json" || true
+if [[ ! -s "$RESULTS/k6-summary.json" ]]; then
+  log "FAILED: k6 produced no summary (see $RESULTS/k6.log)"
+  exit 1
+fi
 log "k6 finished: $(cat "$RESULTS/k6-summary.json")"
 docker wait dispatch-listener >/dev/null
 docker logs dispatch-listener > "$RESULTS/listener.log" 2>&1
@@ -112,6 +118,11 @@ cat > "$RESULTS/run.json" <<JSON
 JSON
 
 node load/report.mjs "$RESULTS"
+STORED="$(node -e "console.log(require('./$RESULTS/verify.json').storedFixes)")"
+if [[ "$STORED" -eq 0 ]]; then
+  log "FAILED: no fix was stored, so the run proves nothing"
+  exit 1
+fi
 if [[ "$VERIFY_EXIT" -ne 0 ]]; then
   log "FAILED: some acknowledged fixes never reached the console (see $RESULTS/verify.log)"
   exit 1

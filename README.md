@@ -46,7 +46,10 @@ signal in car parks and tunnels, so anything that relies on a constant connectio
 - **Webhooks to the order system** from a transactional outbox: HMAC-signed, retried with
   exponential backoff, idempotent by event id. TopFlow Hub's receiving side marks orders
   delivered through its own state machine. Both repositories test the same recorded, signed
-  requests, so neither side can change the contract alone.
+  requests: TopFlow Hub's tests must accept them, and dispatch's end-to-end test fails when what
+  the relay sends no longer has their shape (headers, signature format, field names and types).
+  The copy in TopFlow Hub is updated by hand after a contract change
+  ([apps/api/test/fixtures](apps/api/test/fixtures/README.md)).
 - **ETA** from OSRM when it is configured (optional compose profile), otherwise a documented
   straight-line estimate; every ETA says which one it is.
 - **Scale test.** Two API instances behind nginx, simulated drivers in k6, a console on each

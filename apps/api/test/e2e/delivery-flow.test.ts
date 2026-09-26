@@ -29,6 +29,12 @@ import {
   type TestApp,
 } from '../support/harness.js';
 import {
+  CONTRACT_HEADERS,
+  readRecordedWebhooks,
+  requestShape,
+  type RecordedRequest,
+} from '../support/contract.js';
+import {
   collect,
   connectDispatch,
   connectTracking,
@@ -150,28 +156,32 @@ describe('delivery flow (e2e)', () => {
     });
     customer.close();
 
-    // RECORD_WEBHOOK_FIXTURE=<file> saves these signed requests as the contract fixture that
-    // dispatch and TopFlow Hub both test against (apps/api/test/fixtures/README.md).
+    // The contract with TopFlow Hub: both repositories test the recorded requests in
+    // test/fixtures/webhooks.recorded.json. What the relay sends now must still have their shape
+    // (headers, signature format, field names and types), or this test fails until the fixture is
+    // recorded again and copied to TopFlow Hub. RECORD_WEBHOOK_FIXTURE=<file> records it.
+    const order = ['delivery.assigned', 'delivery.picked_up', 'delivery.completed'];
+    const live: RecordedRequest[] = events
+      .map((r) => ({
+        headers: Object.fromEntries(CONTRACT_HEADERS.map((h) => [h, String(r.headers[h] ?? '')])),
+        body: r.body,
+      }))
+      .sort(
+        (a, b) =>
+          order.indexOf(a.headers['x-dispatch-event-type'] ?? '') -
+          order.indexOf(b.headers['x-dispatch-event-type'] ?? ''),
+      );
+    for (const received of events) {
+      expect(received.headers['content-type']).toBe('application/json');
+    }
     const fixture = process.env.RECORD_WEBHOOK_FIXTURE;
     if (fixture) {
-      const order = ['delivery.assigned', 'delivery.picked_up', 'delivery.completed'];
-      const recorded = events
-        .map((r) => ({
-          headers: Object.fromEntries(
-            ['x-dispatch-event-id', 'x-dispatch-event-type', 'x-dispatch-signature'].map((h) => [
-              h,
-              r.headers[h],
-            ]),
-          ),
-          body: r.body,
-        }))
-        .sort(
-          (a, b) =>
-            order.indexOf(a.headers['x-dispatch-event-type'] as string) -
-            order.indexOf(b.headers['x-dispatch-event-type'] as string),
-        );
-      const file = { recordedAt: new Date().toISOString(), secret: SECRET, requests: recorded };
+      const file = { recordedAt: new Date().toISOString(), secret: SECRET, requests: live };
       await writeFile(fixture, `${JSON.stringify(file, null, 2)}\n`);
+    } else {
+      const recorded = readRecordedWebhooks();
+      expect(recorded.secret).toBe(SECRET);
+      expect(live.map(requestShape)).toEqual(recorded.requests.map(requestShape));
     }
   });
 

@@ -5,8 +5,10 @@ import { verifyWebhook } from './webhook-signature.js';
 
 /**
  * The webhook contract with TopFlow Hub, pinned by requests recorded from the end-to-end delivery
- * flow (see test/fixtures/README.md). TopFlow Hub's tests check the same file with its own schema
- * and verifier, so a change on either side that breaks the other fails a test.
+ * flow (see test/fixtures/README.md). This file checks that the recording verifies and parses
+ * with dispatch's own schema; the end-to-end test checks that what the relay sends now still has
+ * the recorded shape; TopFlow Hub's tests check the same file with its schema and verifier. The
+ * copy in TopFlow Hub is kept in step by hand: record again, copy, run both suites.
  */
 interface RecordedRequest {
   headers: Record<'x-dispatch-event-id' | 'x-dispatch-event-type' | 'x-dispatch-signature', string>;

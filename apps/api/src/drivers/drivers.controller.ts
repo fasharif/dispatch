@@ -15,6 +15,7 @@ import {
   locationBatchSchema,
   shiftSchema,
   type CreateDriverInput,
+  type DeviceDto,
   type DriverDto,
   type DriverHomeDto,
   type EnrolDevice,
@@ -52,6 +53,28 @@ export class DriversController {
   @Post(':id/enrolment-codes')
   enrolmentCode(@Param('id', new ParseUUIDPipe()) id: string): Promise<EnrolmentCodeDto> {
     return this.drivers.newEnrolmentCode(id);
+  }
+
+  @Get(':id/devices')
+  devices(@Param('id', new ParseUUIDPipe()) id: string): Promise<DeviceDto[]> {
+    return this.drivers.devices(id);
+  }
+
+  /** Cuts a lost or stolen phone off: its token is refused from the next request on. */
+  @Post(':id/devices/:deviceId/revoke')
+  @HttpCode(HttpStatus.OK)
+  revokeDevice(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('deviceId', new ParseUUIDPipe()) deviceId: string,
+  ): Promise<DeviceDto> {
+    return this.drivers.revokeDevice(id, deviceId);
+  }
+
+  /** For a driver who has left: revokes every phone and keeps the driver off shift for good. */
+  @Post(':id/deactivate')
+  @HttpCode(HttpStatus.OK)
+  deactivate(@Param('id', new ParseUUIDPipe()) id: string): Promise<DriverDto> {
+    return this.drivers.deactivate(id);
   }
 }
 

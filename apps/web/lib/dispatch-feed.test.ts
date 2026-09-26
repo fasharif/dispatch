@@ -49,6 +49,7 @@ const driver = (id: string, status: DriverDto['status'] = 'available'): DriverDt
   status,
   position: { lat: 25, lng: 55, accuracyM: 5, recordedAt: '2026-09-20T10:00:00.000Z' },
   activeDeliveryId: null,
+  deactivatedAt: null,
 });
 
 const delivery = (status: DeliveryDto['status'], updatedAt: string): DeliveryDto =>

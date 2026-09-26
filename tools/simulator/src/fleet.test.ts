@@ -53,6 +53,7 @@ class FakeApi {
       status: 'available',
       position: null,
       activeDeliveryId: null,
+      deactivatedAt: null,
     });
 
     if (route === 'POST /v1/auth/login') {

@@ -39,8 +39,22 @@ export const driverSchema = z.object({
   status: driverStatusSchema,
   position: driverPositionSchema.nullable(),
   activeDeliveryId: z.uuid().nullable(),
+  /** Set when a dispatcher deactivated the driver: every phone is revoked and none can enrol. */
+  deactivatedAt: isoDateTimeSchema.nullable(),
 });
 export type DriverDto = z.infer<typeof driverSchema>;
+
+/** A phone enrolled for a driver. Its token is never shown again after enrolment. */
+export const deviceSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  createdAt: isoDateTimeSchema,
+  /** Updated at most once a minute while the phone calls the API. */
+  lastSeenAt: isoDateTimeSchema.nullable(),
+  /** A revoked phone's token is refused from then on. */
+  revokedAt: isoDateTimeSchema.nullable(),
+});
+export type DeviceDto = z.infer<typeof deviceSchema>;
 
 export const createDriverSchema = z.object({
   name: z.string().trim().min(2).max(120),

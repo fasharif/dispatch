@@ -3,7 +3,10 @@ import type { DevicePrincipal } from '../common/request-context.js';
 import { Database } from '../db/database.js';
 import { sha256Hex } from './tokens.js';
 
-/** Looks up enrolled devices by the SHA-256 of their bearer token. */
+/**
+ * Looks up enrolled devices by the SHA-256 of their bearer token. A revoked phone, or any phone
+ * of a deactivated driver, is not found (dispatchers revoke them from the console).
+ */
 @Injectable()
 export class DeviceTokens {
   constructor(private readonly db: Database) {}
@@ -18,7 +21,7 @@ export class DeviceTokens {
       `SELECT dv.id AS device_id, dv.driver_id, d.name AS driver_name,
               (dv.last_seen_at IS NULL OR dv.last_seen_at < now() - interval '1 minute') AS stale
          FROM devices dv JOIN drivers d ON d.id = dv.driver_id
-        WHERE dv.token_hash = $1 AND dv.revoked_at IS NULL`,
+        WHERE dv.token_hash = $1 AND dv.revoked_at IS NULL AND d.deactivated_at IS NULL`,
       [sha256Hex(token)],
     );
     if (!row) return null;

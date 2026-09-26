@@ -2,6 +2,7 @@ import type {
   DeliveryDto,
   DeliveryEventDto,
   DeliveryStatus,
+  DeviceDto,
   DriverDto,
   DriverStatus,
   Signature,
@@ -114,7 +115,7 @@ export function toDeliveryEventDto(row: DeliveryEventRow): DeliveryEventDto {
 export const DRIVER_SELECT = `
   SELECT d.id, d.name, d.phone, d.vehicle, d.status,
          ST_Y(d.location::geometry) AS lat, ST_X(d.location::geometry) AS lng,
-         d.location_accuracy_m, d.location_recorded_at,
+         d.location_accuracy_m, d.location_recorded_at, d.deactivated_at,
          (SELECT x.id FROM deliveries x
            WHERE x.driver_id = d.id AND x.status IN ('assigned', 'picked_up')) AS active_delivery_id
     FROM drivers d`;
@@ -129,6 +130,7 @@ export interface DriverRow {
   lng: number | null;
   location_accuracy_m: number | null;
   location_recorded_at: Date | null;
+  deactivated_at: Date | null;
   active_delivery_id: string | null;
 }
 
@@ -149,6 +151,28 @@ export function toDriverDto(row: DriverRow): DriverDto {
           }
         : null,
     activeDeliveryId: row.active_delivery_id,
+    deactivatedAt: iso(row.deactivated_at),
+  };
+}
+
+export const DEVICE_SELECT = `
+  SELECT id, name, created_at, last_seen_at, revoked_at FROM devices`;
+
+export interface DeviceRow {
+  id: string;
+  name: string;
+  created_at: Date;
+  last_seen_at: Date | null;
+  revoked_at: Date | null;
+}
+
+export function toDeviceDto(row: DeviceRow): DeviceDto {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at.toISOString(),
+    lastSeenAt: iso(row.last_seen_at),
+    revokedAt: iso(row.revoked_at),
   };
 }
 

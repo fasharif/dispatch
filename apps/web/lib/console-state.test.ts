@@ -10,6 +10,7 @@ const driver = (id: string, recordedAt: string | null = null): DriverDto => ({
   status: 'available',
   position: recordedAt ? { lat: 25, lng: 55, accuracyM: 5, recordedAt } : null,
   activeDeliveryId: null,
+  deactivatedAt: null,
 });
 
 const fix = (driverId: string, recordedAt: string, lat: number): DriverLocationEvent => ({

@@ -160,6 +160,15 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      # A small functional run: fails if any acknowledged fix never reached the console.
-      # Runner timings are not published (docs/scale-test.md).
+      # A small functional run: fails if any acknowledged fix never reached either console, or if
+      # the kill did not test failover. Runner timings are not published (docs/scale-test.md).
       - run: bash load/run-scale-test.sh --drivers 20 --duration 60
+      # The results folder and the services' logs, without the fleet file (device tokens).
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: scale-test-results
+          path: |
+            load/results/
+            !load/results/**/fleet.json
+          retention-days: 7

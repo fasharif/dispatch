@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Scale test: two API instances behind nginx with the Socket.IO Redis adapter, simulated drivers
-# (k6), and a dispatcher console (the simulator's listener) connected through nginx. Halfway
-# through, one API instance is killed with SIGKILL. The run then checks, against the database,
-# that every fix the drivers had acknowledged reached the console: lost events must be zero.
+# (k6), and two dispatcher consoles (the simulator's listener):
+#
+#   - the "reconnecting" console connects through nginx, like the web console. The instance it
+#     lands on is the one killed, so it must reconnect to the other and resume from the stream.
+#   - the "surviving" console connects straight to the other instance and stays connected. It
+#     receives fixes from the killed instance only through the Redis adapter, and replays.
+#
+# Halfway through, the reconnecting console's instance is killed with SIGKILL. The run then checks,
+# against the database, that every fix the drivers had acknowledged reached both consoles: lost
+# events must be zero. It fails as well when the kill did not disconnect the reconnecting console,
+# or when the surviving console lost its connection, because the run then did not test failover.
 #
 #   load/run-scale-test.sh [--drivers 50] [--duration 120] [--interval 3] [--keep-stack]
 #
@@ -35,9 +43,18 @@ export MSYS_NO_PATHCONV=1
 mkdir -p "$RESULTS"
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+fail() {
+  log "FAILED: $*"
+  exit 1
+}
 
 cleanup() {
-  docker rm -f dispatch-listener dispatch-k6 >/dev/null 2>&1 || true
+  local code=$?
+  if [[ "$code" -ne 0 ]]; then
+    # Keep the services' logs next to the results for diagnosis (CI uploads the folder).
+    docker compose --profile stack logs --no-color --timestamps > "$RESULTS/stack.log" 2>&1 || true
+  fi
+  docker rm -f dispatch-listener-lb dispatch-listener-survivor dispatch-k6 >/dev/null 2>&1 || true
   if [[ "$KEEP_STACK" == false ]]; then
     log "Stopping the stack"
     docker compose --profile stack down -v >/dev/null 2>&1 || true
@@ -58,15 +75,40 @@ tools() {
     -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local "$@"
 }
 
+# listener <container> <api url> <report file>: a console that records what it receives.
+listener() {
+  docker run -d --name "$1" --user root --network "$NETWORK" --memory 256m \
+    -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local \
+    listen --api "$2" --duration "$LISTEN_FOR" --out "/work/$3" >/dev/null
+}
+
+# serving_instance <container>: waits for the listener's first "session on <instance>" line.
+serving_instance() {
+  local instance=""
+  for _ in $(seq 1 60); do
+    instance="$(docker logs "$1" 2>&1 | sed -n 's/.*session on \(api-[0-9]\).*/\1/p' | head -n 1)"
+    if [[ -n "$instance" ]]; then
+      echo "$instance"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 log "Enrolling $DRIVERS simulated drivers"
 tools seed --api http://nginx --drivers "$DRIVERS" --prefix "Load Driver" --fleet /work/fleet.json
 
 LISTEN_FOR=$((DURATION + 40))
-log "Starting the console listener for ${LISTEN_FOR}s"
-docker run -d --name dispatch-listener --user root --network "$NETWORK" --memory 256m \
-  -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local \
-  listen --api http://nginx --duration "$LISTEN_FOR" --out /work/listen-report.json >/dev/null
-sleep 3
+log "Starting the reconnecting console (through nginx) for ${LISTEN_FOR}s"
+listener dispatch-listener-lb http://nginx listen-lb.json
+VICTIM="$(serving_instance dispatch-listener-lb)" ||
+  fail "the console behind nginx did not report its instance (see docker logs dispatch-listener-lb)"
+if [[ "$VICTIM" == api-1 ]]; then SURVIVOR=api-2; else SURVIVOR=api-1; fi
+log "It is served by $VICTIM, which will be killed; starting the surviving console on $SURVIVOR"
+listener dispatch-listener-survivor "http://$SURVIVOR:3000" listen-survivor.json
+serving_instance dispatch-listener-survivor >/dev/null ||
+  fail "the console on $SURVIVOR did not connect (see docker logs dispatch-listener-survivor)"
 
 log "Running k6: $DRIVERS drivers, a fix every ${INTERVAL}s, for ${DURATION}s"
 docker run -d --name dispatch-k6 --user root --network "$NETWORK" --memory 512m \
@@ -77,26 +119,29 @@ docker run -d --name dispatch-k6 --user root --network "$NETWORK" --memory 512m 
 
 sleep $((DURATION / 2))
 KILLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-log "Killing dispatch-api-1 (SIGKILL) mid-test"
-docker kill --signal KILL dispatch-api-1 >/dev/null
+log "Killing dispatch-$VICTIM (SIGKILL) mid-test"
+docker kill --signal KILL "dispatch-$VICTIM" >/dev/null
 
 docker wait dispatch-k6 >/dev/null
 docker logs dispatch-k6 > "$RESULTS/k6.log" 2>&1 || true
 grep '^{' "$RESULTS/k6.log" | tail -n 1 > "$RESULTS/k6-summary.json" || true
-if [[ ! -s "$RESULTS/k6-summary.json" ]]; then
-  log "FAILED: k6 produced no summary (see $RESULTS/k6.log)"
-  exit 1
-fi
+[[ -s "$RESULTS/k6-summary.json" ]] || fail "k6 produced no summary (see $RESULTS/k6.log)"
 log "k6 finished: $(cat "$RESULTS/k6-summary.json")"
-docker wait dispatch-listener >/dev/null
-docker logs dispatch-listener > "$RESULTS/listener.log" 2>&1
+for name in lb survivor; do
+  docker wait "dispatch-listener-$name" >/dev/null
+  docker logs "dispatch-listener-$name" > "$RESULTS/listener-$name.log" 2>&1
+done
 
-log "Comparing what the database stored with what the console received"
+log "Comparing what the database stored with what each console received"
 set +e
-tools verify --fleet /work/fleet.json --report /work/listen-report.json \
-  --database-url postgresql://dispatch:dispatch@postgres:5432/dispatch --result /work/verify.json \
-  | tee "$RESULTS/verify.log"
-VERIFY_EXIT=${PIPESTATUS[0]}
+VERIFY_EXIT=0
+for name in lb survivor; do
+  tools verify --fleet /work/fleet.json --report "/work/listen-$name.json" \
+    --database-url postgresql://dispatch:dispatch@postgres:5432/dispatch \
+    --result "/work/verify-$name.json" | tee "$RESULTS/verify-$name.log"
+  code=${PIPESTATUS[0]}
+  [[ "$code" -ne 0 ]] && VERIFY_EXIT=$code
+done
 set -e
 
 cat > "$RESULTS/run.json" <<JSON
@@ -105,7 +150,8 @@ cat > "$RESULTS/run.json" <<JSON
   "drivers": $DRIVERS,
   "durationSeconds": $DURATION,
   "intervalSeconds": $INTERVAL,
-  "killedInstance": "dispatch-api-1",
+  "killedInstance": "dispatch-$VICTIM",
+  "survivingInstance": "dispatch-$SURVIVOR",
   "killedAt": "$KILLED_AT",
   "gitCommit": "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)",
   "host": {
@@ -118,13 +164,18 @@ cat > "$RESULTS/run.json" <<JSON
 JSON
 
 node load/report.mjs "$RESULTS"
-STORED="$(node -e "console.log(require('./$RESULTS/verify.json').storedFixes)")"
-if [[ "$STORED" -eq 0 ]]; then
-  log "FAILED: no fix was stored, so the run proves nothing"
-  exit 1
-fi
-if [[ "$VERIFY_EXIT" -ne 0 ]]; then
-  log "FAILED: some acknowledged fixes never reached the console (see $RESULTS/verify.log)"
-  exit 1
+# json <file> <expression over r>: reads a value from one of the run's JSON files.
+json() { node -e "const r = require('./$RESULTS/$1'); console.log($2)"; }
+[[ "$(json verify-lb.json r.storedFixes)" -gt 0 ]] ||
+  fail "no fix was stored, so the run proves nothing"
+[[ "$(json listen-lb.json r.resumes)" -gt 0 ]] ||
+  fail "killing $VICTIM did not make the console behind nginx reconnect and resume"
+[[ "$(json listen-survivor.json 'r.connects === 1 && r.disconnects === 0')" == true ]] ||
+  fail "the console on $SURVIVOR lost its connection, so the run did not test that path"
+[[ "$VERIFY_EXIT" -eq 0 ]] ||
+  fail "some acknowledged fixes never reached a console (see $RESULTS/verify-*.log)"
+if [[ "$(json k6-summary.json 'r.fixesDuplicate + r.batchRetries')" -eq 0 ]]; then
+  log "Note: k6 counted no duplicate answers or retries, so no batch stored by $VICTIM had to be"
+  log "replayed in this run. The end-to-end test two-instances.test.ts covers that path."
 fi
 log "PASSED: no lost events. Results in $RESULTS"

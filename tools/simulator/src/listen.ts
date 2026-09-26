@@ -20,6 +20,8 @@ export interface ListenOptions {
 export interface ListenReport {
   startedAt: string;
   endedAt: string;
+  /** The API instance that served each connection, in order (from the server's session event). */
+  instances: string[];
   connects: number;
   disconnects: number;
   resumes: number;
@@ -47,6 +49,7 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
   const log = options.log ?? (() => undefined);
   const feed = new LiveFeed();
   const keys = new Set<string>();
+  const instances: string[] = [];
   const live: number[] = [];
   const all: number[] = [];
   const report = {
@@ -81,10 +84,17 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
     reconnectionDelay: 250,
     reconnectionDelayMax: 2_000,
   });
+  socket.on('session', (session) => {
+    instances.push(session.instanceId);
+    // The scale-test runner reads this line to find the instance to kill.
+    log(`session on ${session.instanceId}`);
+  });
   socket.on('driver:location', (event) => {
     record(event, false);
   });
   socket.on('disconnect', (reason) => {
+    // Closing the socket at the end of the run is not a lost connection.
+    if (reason === 'io client disconnect') return;
     report.disconnects += 1;
     log(`disconnected: ${reason}`);
   });
@@ -125,6 +135,7 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
   return {
     startedAt: startedAt.toISOString(),
     endedAt: new Date().toISOString(),
+    instances,
     connects: report.connects,
     disconnects: report.disconnects,
     resumes: report.resumes,

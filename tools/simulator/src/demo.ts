@@ -60,9 +60,9 @@ interface DriverState {
 /** About 50 km/h in town. */
 const DELIVERY_SPEED_MPS = 14;
 
-/** A random point within 500 m of an area's centre. */
-function randomDropoff(centre: LatLng): LatLng {
-  const distance = Math.random() * 500;
+/** A random point between `min` and `max` metres from `centre`. */
+export function randomPointNear(centre: LatLng, min: number, max: number): LatLng {
+  const distance = min + Math.random() * (max - min);
   const bearing = Math.random() * 2 * Math.PI;
   const dLat = (distance * Math.cos(bearing)) / 111_320;
   const dLng = (distance * Math.sin(bearing)) / (111_320 * Math.cos((centre.lat * Math.PI) / 180));
@@ -71,6 +71,15 @@ function randomDropoff(centre: LatLng): LatLng {
     lng: Number((centre.lng + dLng).toFixed(6)),
   };
 }
+
+/** A drop-off within 500 m of an area's centre. */
+const randomDropoff = (centre: LatLng): LatLng => randomPointNear(centre, 0, 500);
+
+/**
+ * Where the driver stops to hand the parcel over: 20-80 m from the drop-off pin, as a real
+ * driver parks near the door rather than on the geocoded point. Inside the 150 m geofence.
+ */
+const doorstep = (dropoff: LatLng): LatLng => randomPointNear(dropoff, 20, 80);
 
 /**
  * Runs deliveries end to end so the console has something to show: new orders appear, the
@@ -157,7 +166,7 @@ async function step(
       const target =
         home.activeDelivery.status === 'assigned'
           ? home.activeDelivery.pickup
-          : home.activeDelivery.dropoff;
+          : doorstep(home.activeDelivery.dropoff);
       state.towards = new TargetWalker(state.sim.position, target, DELIVERY_SPEED_MPS);
       state.sim.moveWith(state.towards);
     }
@@ -172,7 +181,11 @@ async function step(
   try {
     if (delivery.status === 'assigned') {
       state.delivery = await state.client.pickUp(delivery.id);
-      state.towards = new TargetWalker(state.sim.position, delivery.dropoff, DELIVERY_SPEED_MPS);
+      state.towards = new TargetWalker(
+        state.sim.position,
+        doorstep(delivery.dropoff),
+        DELIVERY_SPEED_MPS,
+      );
       state.sim.moveWith(state.towards);
       log(`${delivery.orderReference}: picked up`);
       return;
@@ -194,7 +207,7 @@ async function step(
       PHOTO,
     );
     log(
-      `${delivery.orderReference}: delivered ${String(Math.round(haversineMeters(position, delivery.dropoff)))} m from the door`,
+      `${delivery.orderReference}: delivered ${String(Math.round(haversineMeters(position, delivery.dropoff)))} m from the drop-off pin`,
     );
     state.delivery = null;
     state.towards = null;

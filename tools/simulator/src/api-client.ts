@@ -103,6 +103,14 @@ export class ApiClient {
     return this.request('POST', '/v1/auth/login', { email, password });
   }
 
+  listDrivers(): Promise<DriverDto[]> {
+    return this.request('GET', '/v1/drivers');
+  }
+
+  newEnrolmentCode(driverId: string): Promise<EnrolmentCodeDto> {
+    return this.request('POST', `/v1/drivers/${driverId}/enrolment-codes`, {});
+  }
+
   createDriver(
     name: string,
     vehicle: string,

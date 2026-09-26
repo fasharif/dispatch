@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { ApiClient } from './api-client.js';
 import { demo } from './demo.js';
 import { drive } from './drive.js';
-import { readFleet, seedFleet, writeFleet } from './fleet.js';
+import { demoDriverName, numberedNames, readFleet, seedFleet, writeFleet } from './fleet.js';
 import { listen, type ListenReport } from './listen.js';
 import { verify } from './verify.js';
 
@@ -22,9 +22,12 @@ Common options
   --email, --password    Dispatcher account (env DISPATCH_EMAIL, DISPATCH_PASSWORD)
   --fleet <file>         Fleet file (default fleet.json)
 
-seed      --drivers <n> [--prefix <name>]
+seed      --drivers <n> [--prefix <name>=Sim Driver]
 drive     [--interval <s>=3] [--duration <s>=60] [--offline-rate <0-1>=0.02] [--offline-seconds <s>=20]
-demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=40]
+demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=40] [--prefix <name>]
+
+seed and demo reuse drivers that already exist under the same name, so running them again
+does not create duplicates.
 listen    [--duration <s>=60] [--out <file>=listen-report.json]
 verify    --report <file> --database-url <url> [--result <file>]
 `;
@@ -37,7 +40,7 @@ const { positionals, values } = parseArgs({
     password: { type: 'string', default: process.env.DISPATCH_PASSWORD ?? 'dispatch-demo-2026' },
     fleet: { type: 'string', default: 'fleet.json' },
     drivers: { type: 'string' },
-    prefix: { type: 'string', default: 'Sim Driver' },
+    prefix: { type: 'string' },
     interval: { type: 'string' },
     duration: { type: 'string' },
     'offline-rate': { type: 'string', default: '0.02' },
@@ -82,7 +85,7 @@ async function main(): Promise<number> {
         email: values.email,
         password: values.password,
         drivers,
-        prefix: values.prefix,
+        name: numberedNames(values.prefix ?? 'Sim Driver'),
       });
       await writeFleet(values.fleet, fleet);
       log(`Enrolled ${String(fleet.drivers.length)} drivers; fleet written to ${values.fleet}`);
@@ -106,7 +109,7 @@ async function main(): Promise<number> {
         email: values.email,
         password: values.password,
         drivers: number(values.drivers, 12, 'drivers'),
-        prefix: values.prefix === 'Sim Driver' ? 'Demo Driver' : values.prefix,
+        name: values.prefix ? numberedNames(values.prefix) : demoDriverName,
       });
       log(`Enrolled ${String(fleet.drivers.length)} demo drivers`);
       await demo(fleet, {

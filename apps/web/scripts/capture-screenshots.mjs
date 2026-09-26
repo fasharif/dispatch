@@ -17,7 +17,10 @@ const OUT = fileURLToPath(new URL('../../../docs/screenshots/', import.meta.url)
 async function api(path, token, body) {
   const response = await fetch(`${API_URL}${path}`, {
     method: body ? 'POST' : 'GET',
-    headers: { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) },
+    headers: {
+      'content-type': 'application/json',
+      ...(token && { authorization: `Bearer ${token}` }),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
@@ -28,7 +31,8 @@ const { accessToken } = await api('/v1/auth/login', null, { email: EMAIL, passwo
 const deliveries = await api('/v1/deliveries?limit=200', accessToken);
 const onTheWay = deliveries.find((d) => d.status === 'picked_up');
 const delivered = deliveries.find((d) => d.status === 'delivered' && d.proof);
-if (!onTheWay || !delivered) throw new Error('Needs one delivery on the way and one delivered: run the demo first');
+if (!onTheWay || !delivered)
+  throw new Error('Needs one delivery on the way and one delivered: run the demo first');
 const link = await api(`/v1/deliveries/${onTheWay.id}/tracking-link`, accessToken, {});
 
 await mkdir(OUT, { recursive: true });

@@ -1,7 +1,7 @@
 'use client';
 
 import type { DeviceDto, DriverDto, EnrolmentCodeDto } from '@dispatch/shared';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ApiRequestError, apiFetch } from '@/lib/api';
 import { isStale } from '@/lib/console-state';
 import { DRIVER_STATUS_LABEL, formatAge } from '@/lib/format';
@@ -146,18 +146,23 @@ function DriverDevices({ driver, token, onCode, onChanged }: DriverDevicesProps)
   const [devices, setDevices] = useState<DeviceDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [version, setVersion] = useState(0);
 
-  const load = useCallback(async () => {
-    try {
-      setDevices(await apiFetch<DeviceDto[]>(`/v1/drivers/${driver.id}/devices`, { token }));
-    } catch (caught) {
-      setError(errorMessage(caught, 'The phones could not be loaded.'));
-    }
-  }, [driver.id, token]);
-
+  // Load when opened, and again after a phone is revoked.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    apiFetch<DeviceDto[]>(`/v1/drivers/${driver.id}/devices`, { token }).then(
+      (loaded) => {
+        if (active) setDevices(loaded);
+      },
+      (caught: unknown) => {
+        if (active) setError(errorMessage(caught, 'The phones could not be loaded.'));
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [driver.id, token, version]);
 
   async function act(work: () => Promise<void>, fallback: string) {
     setBusy(true);
@@ -178,7 +183,7 @@ function DriverDevices({ driver, token, onCode, onChanged }: DriverDevicesProps)
         token,
         body: {},
       });
-      await load();
+      setVersion((v) => v + 1);
     }, 'The phone could not be revoked.');
   };
 

@@ -71,8 +71,9 @@ were resent because the instance died while handling them.
 
 <!-- results:start -->
 
-| Run | Drivers | Duration | Fix interval | Instance killed | Fixes stored | Received by console A | Received by console B | Lost (A / B) | Resumes (A) | Replayed batches | p95 latency, all fixes (A) | p95 latency, live fixes (B) | Environment |
-| --- | ------- | -------- | ------------ | --------------- | ------------ | --------------------- | --------------------- | ------------ | ----------- | ---------------- | -------------------------- | --------------------------- | ----------- |
+| Run              | Drivers | Duration | Fix interval | Instance killed          | Fixes stored | Received by console A | Received by console B | Lost (A / B) | Resumes (A) | Replayed batches | p95 latency, all fixes (A)  | p95 latency, live fixes (B) | Environment                                                            |
+| ---------------- | ------- | -------- | ------------ | ------------------------ | ------------ | --------------------- | --------------------- | ------------ | ----------- | ---------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| 20260926T024932Z | 50      | 120 s    | 3 s          | api-2 (SIGKILL, mid-run) | 1999         | 1999                  | 1999                  | 0 / 0        | 1           | 0                | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit e647905 |
 
 <!-- results:end -->
 

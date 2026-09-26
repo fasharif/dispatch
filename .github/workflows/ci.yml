@@ -90,8 +90,8 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 3s --health-timeout 3s --health-retries 30
     env:
-      # A throwaway API for this job only; these values are not secrets.
-      NODE_ENV: development
+      # A throwaway API for this job only; these values are not secrets. NODE_ENV stays unset:
+      # the API then runs as development, and `next build` needs its own production default.
       PORT: '57100'
       PROCESS_ROLE: all
       DATABASE_URL: postgresql://dispatch:dispatch@localhost:5432/dispatch

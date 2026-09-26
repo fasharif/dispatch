@@ -1,7 +1,7 @@
 'use client';
 
 import type { DeliveryDto, DispatcherDto, DriverDto, LatLng } from '@dispatch/shared';
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useMemo, useReducer, useState } from 'react';
 import type { BasemapKind } from '@/components/MapCanvas';
 import { apiFetch } from '@/lib/api';
 import { consoleReducer, initialConsoleState } from '@/lib/console-state';
@@ -33,30 +33,20 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
     dropoff: null,
   });
   const [basemap, setBasemap] = useState<BasemapKind | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadDrivers = useCallback(async () => {
-    dispatch({
-      type: 'drivers/loaded',
-      drivers: await apiFetch<DriverDto[]>('/v1/drivers', { token }),
-    });
-  }, [token]);
-
-  useEffect(() => {
-    Promise.all([
-      loadDrivers(),
-      apiFetch<DeliveryDto[]>('/v1/deliveries?limit=200', { token }).then((deliveries) => {
-        dispatch({ type: 'deliveries/loaded', deliveries });
-      }),
-    ]).catch(() => {
-      setLoadError('Drivers and deliveries could not be loaded. Is the API running?');
-    });
-  }, [loadDrivers, token]);
-
-  const onGap = useCallback(() => {
-    void loadDrivers().catch(() => undefined);
-  }, [loadDrivers]);
-  useDispatchFeed(token, dispatch, onGap, onSignOut);
+  // Drivers and deliveries are loaded on every connection of the live feed (the first, and after
+  // each reconnect), so changes made while the console was disconnected are not missed.
+  const loadSnapshot = useCallback(
+    async (signal: AbortSignal) => {
+      const [drivers, deliveries] = await Promise.all([
+        apiFetch<DriverDto[]>('/v1/drivers', { token, signal }),
+        apiFetch<DeliveryDto[]>('/v1/deliveries?limit=200', { token, signal }),
+      ]);
+      return { drivers, deliveries };
+    },
+    [token],
+  );
+  useDispatchFeed(token, dispatch, loadSnapshot, onSignOut);
 
   const drivers = useMemo(() => Object.values(state.drivers), [state.drivers]);
   const deliveries = useMemo(
@@ -139,9 +129,9 @@ export function Dashboard({ token, dispatcher, onSignOut }: DashboardProps) {
             </button>
           ))}
         </div>
-        {loadError && (
+        {state.loadError && (
           <p className="error" role="alert">
-            {loadError}
+            {state.loadError}
           </p>
         )}
         {tab === 'deliveries' && (

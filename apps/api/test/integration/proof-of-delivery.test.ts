@@ -113,6 +113,23 @@ describe('proof of delivery', () => {
     expect((await complete(proofForm(NEAR_THE_EDGE, 30))).status).toBe(200);
   });
 
+  it('refuses a capture time from a phone whose clock is wrong, before storing the photo', async () => {
+    const minutes = (n: number) => new Date(Date.now() + n * 60_000);
+    // MAX_CLOCK_SKEW_S is 120 s: ten minutes ahead is refused.
+    const future = await complete(proofForm(AT_THE_GATE, 6, PNG_1X1, minutes(10)));
+    expect(future.status).toBe(422);
+    expect(((await future.json()) as { code: string; message: string }).message).toMatch(
+      /in the future\. Check the phone's date and time settings\.$/,
+    );
+    // Before the pickup (a day ago) is refused too: the order system would record it.
+    const past = await complete(proofForm(AT_THE_GATE, 6, PNG_1X1, minutes(-24 * 60)));
+    expect(past.status).toBe(422);
+    expect(((await past.json()) as { code: string }).code).toBe('CLOCK_SKEW');
+    expect(await photosOf(delivery.id)).toEqual([]);
+    // A minute ahead is within the allowed skew.
+    expect((await complete(proofForm(AT_THE_GATE, 6, PNG_1X1, minutes(1)))).status).toBe(200);
+  });
+
   it('accepts the exact drop-off point', async () => {
     expect((await complete(proofForm(DROPOFF))).status).toBe(200);
   });

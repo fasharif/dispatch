@@ -77,9 +77,9 @@ export class ProofService {
 
     // Cheap checks before anything is written to disk: the delivery exists, belongs to this
     // driver and can still be completed, or this is a retry of a completion that succeeded.
-    if (await this.checkBeforeUpload(id, device, idempotencyKey)) {
-      return this.deliveries.get(id);
-    }
+    const check = await this.checkBeforeUpload(id, device, idempotencyKey);
+    if (check === 'already-completed') return this.deliveries.get(id);
+    this.checkCaptureTime(proof.capturedAt, check.pickedUpAt);
 
     const stored = await this.photos.save(id, photo.buffer, image.extension);
     let effects: ChangeEffects | 'already-completed';
@@ -201,28 +201,51 @@ export class ProofService {
   }
 
   /**
-   * Returns true when this is a retry of a completion that already succeeded with the same
-   * Idempotency-Key; throws when the delivery cannot be completed by this device.
+   * Returns 'already-completed' when this is a retry of a completion that already succeeded with
+   * the same Idempotency-Key; throws when the delivery cannot be completed by this device.
    */
   private async checkBeforeUpload(
     id: string,
     device: DevicePrincipal,
     idempotencyKey: string | null,
-  ): Promise<boolean> {
-    const row = await this.db.maybeOne<{ driver_id: string | null; status: DeliveryStatus }>(
-      'SELECT driver_id, status FROM deliveries WHERE id = $1',
-      [id],
-    );
+  ): Promise<'already-completed' | { pickedUpAt: Date | null }> {
+    const row = await this.db.maybeOne<{
+      driver_id: string | null;
+      status: DeliveryStatus;
+      picked_up_at: Date | null;
+    }>('SELECT driver_id, status, picked_up_at FROM deliveries WHERE id = $1', [id]);
     if (!row) throw new NotFoundException('Delivery not found');
     if (row.driver_id !== device.driverId) {
       throw new ForbiddenException('This delivery is not assigned to you');
     }
     if (row.status === 'delivered') {
-      if (await this.completedWithKey(this.db.pool, id, idempotencyKey)) return true;
+      if (await this.completedWithKey(this.db.pool, id, idempotencyKey)) {
+        return 'already-completed';
+      }
       throw new ConflictException('This delivery has already been completed');
     }
     assertTransition(row.status, 'delivered');
-    return false;
+    return { pickedUpAt: row.picked_up_at };
+  }
+
+  /**
+   * capturedAt comes from the phone's clock and travels to the order system with the
+   * delivery.completed event, so it must fall between the pickup and now, allowing
+   * MAX_CLOCK_SKEW_S either way. A proof taken offline and sent later is still accepted.
+   */
+  private checkCaptureTime(capturedAt: string, pickedUpAt: Date | null, now = Date.now()): void {
+    const captured = Date.parse(capturedAt);
+    const skewMs = this.config.drivers.maxClockSkewS * 1000;
+    const earliest = (pickedUpAt?.getTime() ?? now) - skewMs;
+    if (captured > now + skewMs || captured < earliest) {
+      throw new UnprocessableEntityException({
+        message:
+          `The proof says it was captured at ${new Date(captured).toISOString()}, which is ` +
+          (captured > now ? 'in the future' : 'before the parcel was picked up') +
+          ". Check the phone's date and time settings.",
+        code: ErrorCode.CLOCK_SKEW,
+      });
+    }
   }
 
   private async completedWithKey(

@@ -34,5 +34,7 @@ export const ErrorCode = {
   TRACKING_LINK_EXPIRED: 'TRACKING_LINK_EXPIRED',
   INVALID_TRANSITION: 'INVALID_TRANSITION',
   UNSUPPORTED_MEDIA: 'UNSUPPORTED_MEDIA',
+  /** A time from the phone is too far from the server's (its clock is wrong). */
+  CLOCK_SKEW: 'CLOCK_SKEW',
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

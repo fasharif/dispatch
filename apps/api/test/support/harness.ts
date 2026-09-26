@@ -247,6 +247,7 @@ export function proofForm(
   position: { lat: number; lng: number },
   accuracyM = 6,
   photo = PNG_1X1,
+  capturedAt = new Date(),
 ): FormData {
   const form = new FormData();
   form.set(
@@ -255,7 +256,7 @@ export function proofForm(
       recipientName: 'Aisha Rahman',
       position,
       accuracyM,
-      capturedAt: new Date().toISOString(),
+      capturedAt: capturedAt.toISOString(),
       signature: SIGNATURE,
     }),
   );

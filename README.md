@@ -8,7 +8,7 @@ A portfolio project. The orders come from [TopFlow Hub](https://github.com/fasha
 another portfolio project, whose receiving side marks them delivered (ADR-024 in its
 `docs/DECISIONS.md`). Nothing here serves a real company.
 
-![The dispatcher console: drivers and deliveries on a map of Dubai, with a delivery on its way selected](docs/screenshots/console.png)
+![The dispatcher console during the demo: drivers move across Dubai and a delivery on its way is selected (40 seconds, played five times faster)](docs/screenshots/demo.gif)
 
 | Tracking page, Arabic                                                                                           | Tracking page, English                                        | Proof of delivery in the console                                                             |
 | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -24,8 +24,9 @@ signal in car parks and tunnels, so anything that relies on a constant connectio
 ## Features
 
 - **Live map.** Every driver's position and every open delivery, updated over WebSockets as
-  fixes arrive, on a Protomaps basemap of Dubai. After a reconnect the console catches up on the
-  positions it missed and reloads drivers and deliveries.
+  fixes arrive, on a Protomaps basemap of Dubai ([screenshot](docs/screenshots/console.png)).
+  After a reconnect the console catches up on the positions it missed and reloads drivers and
+  deliveries.
 - **Nearest free driver.** New deliveries are assigned to the closest available driver with a
   recent fix (PostGIS KNN on a GiST index, safe under concurrent assignment). The dispatcher can
   see the candidates with distances and ETAs and override the choice before pickup.
@@ -195,7 +196,7 @@ tools/
   simulator/       CLI: seed simulated drivers, drive them, run the demo, listen and verify
 load/              k6 scale test, its runner and report
 deploy/            nginx configuration for the compose stack
-scripts/           Basemap extract and OSRM data preparation
+scripts/           Basemap extract, OSRM data preparation, the README's demo GIF
 docs/              Decisions, scale test, screenshots
 ```
 

@@ -3,7 +3,8 @@
 //
 //   WEB_URL=http://localhost:57300 API_URL=http://localhost:57100 node scripts/capture-screenshots.mjs
 //
-// Writes docs/screenshots/{console,proof,tracking-ar,tracking-en}.png.
+// Writes docs/screenshots/{console,proof,tracking-ar,tracking-en}.png. The animated demo.gif comes
+// from scripts/record-demo-gif.sh.
 import { chromium } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';

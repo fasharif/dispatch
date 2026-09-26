@@ -134,8 +134,13 @@ export class ApiClient {
     return this.request('POST', '/v1/driver/locations', batch);
   }
 
-  createDelivery(input: CreateDeliveryInput): Promise<DeliveryDto> {
-    return this.request('POST', '/v1/deliveries', input);
+  createDelivery(input: CreateDeliveryInput, timeoutMs?: number): Promise<DeliveryDto> {
+    return this.request('POST', '/v1/deliveries', input, timeoutMs);
+  }
+
+  /** The newest deliveries, up to `limit` (the API's maximum is 200). */
+  listDeliveries(limit = 200): Promise<DeliveryDto[]> {
+    return this.request('GET', `/v1/deliveries?limit=${String(limit)}`);
   }
 
   pickUp(deliveryId: string): Promise<DeliveryDto> {

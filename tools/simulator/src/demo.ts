@@ -1,4 +1,9 @@
-import { haversineMeters, type DeliveryDto, type LatLng } from '@dispatch/shared';
+import {
+  haversineMeters,
+  type CreateDeliveryInput,
+  type DeliveryDto,
+  type LatLng,
+} from '@dispatch/shared';
 import { ApiClient } from './api-client.js';
 import { demoParcelPhoto } from './demo-photo.js';
 import type { SimulatedDriver } from './driver-sim.js';
@@ -38,6 +43,29 @@ const AREAS: readonly { name: string; centre: LatLng }[] = [
   { name: 'Business Bay', centre: { lat: 25.1795, lng: 55.2684 } },
   { name: 'Al Quoz 4', centre: { lat: 25.1509, lng: 55.2541 } },
 ];
+
+/**
+ * Creates an order, or finds it when the answer was lost (a timeout or a dropped connection): the
+ * API may have created it anyway, and at most one open delivery exists per order reference, so a
+ * lookup tells which. Only a definite refusal, or an order that is not there, is a failure.
+ */
+export async function createOrFind(
+  dispatcher: ApiClient,
+  input: CreateDeliveryInput,
+  timeoutMs?: number,
+): Promise<DeliveryDto> {
+  try {
+    return await dispatcher.createDelivery(input, timeoutMs);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const found = await dispatcher
+      .listDeliveries()
+      .then((list) => list.find((d) => d.orderReference === input.orderReference))
+      .catch(() => undefined);
+    if (found) return found;
+    throw error;
+  }
+}
 
 export interface DemoOptions {
   dispatcher: ApiClient;
@@ -110,7 +138,7 @@ export async function demo(fleet: Fleet, options: DemoOptions): Promise<void> {
       orderNumber += 1;
       const area = AREAS[orderNumber % AREAS.length] ?? AREAS[0];
       try {
-        const delivery = await options.dispatcher.createDelivery({
+        const delivery = await createOrFind(options.dispatcher, {
           orderReference: `DEMO-${String(orderNumber).padStart(6, '0')}`,
           recipientName: RECIPIENTS[orderNumber % RECIPIENTS.length] ?? 'Customer',
           recipientPhone: '+971 50 000 0000',

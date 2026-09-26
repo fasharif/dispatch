@@ -27,7 +27,8 @@ drive     [--interval <s>=3] [--duration <s>=60] [--offline-rate <0-1>=0.02] [--
 demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-every <s>=40] [--prefix <name>]
 
 seed and demo reuse drivers that already exist under the same name, so running them again
-does not create duplicates.
+does not create duplicates. demo also keeps the phones it enrolled in the fleet file (device
+tokens: keep it private) and reuses them on the next run while they work.
 listen    [--duration <s>=60] [--out <file>=listen-report.json]
 verify    --report <file> --database-url <url> [--result <file>]
 `;
@@ -104,14 +105,24 @@ async function main(): Promise<number> {
       return summary.stillQueued === 0 ? 0 : 1;
     }
     case 'demo': {
+      // The phones of an earlier run are kept in the fleet file and reused while they work.
+      const earlier = await readFleet(values.fleet).catch(() => null);
       const fleet = await seedFleet({
         api: values.api,
         email: values.email,
         password: values.password,
         drivers: number(values.drivers, 12, 'drivers'),
         name: values.prefix ? numberedNames(values.prefix) : demoDriverName,
+        reuse: earlier,
       });
-      log(`Enrolled ${String(fleet.drivers.length)} demo drivers`);
+      await writeFleet(values.fleet, fleet);
+      const kept = fleet.drivers.filter((d) =>
+        earlier?.drivers.some((e) => e.deviceId === d.deviceId),
+      ).length;
+      log(
+        `${String(fleet.drivers.length)} demo drivers on shift ` +
+          `(${String(kept)} with the phone from the last run); fleet file ${values.fleet}`,
+      );
       await demo(fleet, {
         dispatcher: new ApiClient(values.api).withToken(await dispatcherToken(values.api)),
         intervalSeconds: number(values.interval, 2, 'interval'),

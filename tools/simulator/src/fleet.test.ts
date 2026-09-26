@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { randomPointNear } from './demo.js';
+import { ApiClient } from './api-client.js';
+import { createOrFind, randomPointNear } from './demo.js';
 import { demoDriverName, numberedNames, seedFleet } from './fleet.js';
 
 /**
@@ -14,6 +15,14 @@ class FakeApi {
   readonly drivers = new Map<string, { id: string; name: string }>();
   readonly calls: string[] = [];
   dropNextCreate = false;
+  /**
+   * The next POST /v1/deliveries is answered too late for the client: 'stored' keeps the
+   * delivery (the answer was lost on the way back), 'lost' does not (the request never arrived).
+   */
+  slowNextDelivery: 'stored' | 'lost' | null = null;
+  readonly deliveries: { id: string; orderReference: string }[] = [];
+  /** Device token -> driver id; revoked tokens are removed. */
+  readonly tokens = new Map<string, string>();
   private readonly codes = new Map<string, string>();
   private readonly server = createServer((request, response) => {
     void this.handle(request, response);
@@ -78,13 +87,36 @@ class FakeApi {
         send(401, { message: 'invalid code' });
         return;
       }
-      send(201, {
-        deviceId: randomUUID(),
-        deviceToken: `dvc_${randomUUID()}`,
-        driver: driverDto(driver),
-      });
+      // One working phone per driver, as the API does: enrolling revokes the earlier one.
+      for (const [token, id] of this.tokens) if (id === driver.id) this.tokens.delete(token);
+      const deviceToken = `dvc_${randomUUID()}`;
+      this.tokens.set(deviceToken, driver.id);
+      send(201, { deviceId: randomUUID(), deviceToken, driver: driverDto(driver) });
     } else if (route === 'POST /v1/driver/shift') {
-      send(200, {});
+      const token = (request.headers.authorization ?? '').replace(/^Bearer /, '');
+      const driver = this.drivers.get(this.tokens.get(token) ?? '');
+      if (!driver) {
+        send(401, { message: 'This device is not enrolled or has been revoked' });
+        return;
+      }
+      send(200, driverDto(driver));
+    } else if (route === 'POST /v1/deliveries') {
+      const delivery = {
+        id: randomUUID(),
+        orderReference: (body as { orderReference: string }).orderReference,
+      };
+      const slow = this.slowNextDelivery;
+      this.slowNextDelivery = null;
+      if (slow !== 'lost') this.deliveries.push(delivery);
+      if (slow) {
+        setTimeout(() => {
+          send(201, delivery);
+        }, 1_000);
+        return;
+      }
+      send(201, delivery);
+    } else if (route === 'GET /v1/deliveries?limit=200') {
+      send(200, this.deliveries);
     } else {
       send(404, { message: route });
     }
@@ -118,6 +150,26 @@ describe('seedFleet', () => {
     expect(api.calls.filter((c) => c === 'POST /v1/drivers/:id/enrolment-codes')).toHaveLength(3);
   });
 
+  it('keeps the phones from an earlier fleet file while their tokens work', async () => {
+    const first = await seedFleet(options());
+    // One phone was revoked in the meantime (for example by enrolling it elsewhere).
+    const revoked = first.drivers[1];
+    for (const [token] of api.tokens) if (token === revoked?.token) api.tokens.delete(token);
+    api.calls.length = 0;
+
+    const second = await seedFleet({ ...options(), reuse: first });
+    expect(second.drivers.map((d) => d.token)).toEqual([
+      first.drivers[0]?.token,
+      expect.not.stringMatching(revoked?.token ?? ''),
+      first.drivers[2]?.token,
+    ]);
+    // Only the revoked phone was enrolled again.
+    expect(api.calls.filter((c) => c === 'POST /v1/devices/enrol')).toHaveLength(1);
+    // A fleet file for another API is ignored.
+    const elsewhere = await seedFleet({ ...options(), reuse: { ...second, api: 'http://x' } });
+    expect(elsewhere.drivers.map((d) => d.token)).not.toContain(second.drivers[0]?.token);
+  });
+
   it('looks before creating again when the answer to "create" is lost', async () => {
     api.dropNextCreate = true;
     const fleet = await seedFleet({ ...options(), drivers: 1 });
@@ -126,6 +178,43 @@ describe('seedFleet', () => {
     // The retry found the driver the lost request had created and asked for a new code.
     expect(api.calls.filter((c) => c === 'POST /v1/drivers')).toHaveLength(1);
     expect(api.calls).toContain('POST /v1/drivers/:id/enrolment-codes');
+  });
+});
+
+describe('createOrFind', () => {
+  const input = {
+    orderReference: 'DEMO-000123',
+    recipientName: 'Aisha Rahman',
+    address: 'Villa 1, Al Safa 2, Dubai',
+    pickup: { lat: 25.14, lng: 55.22 },
+    dropoff: { lat: 25.16, lng: 55.23 },
+    autoAssign: true,
+  };
+
+  it('finds the order the API created when the answer did not arrive in time', async () => {
+    const api = new FakeApi();
+    await api.start();
+    try {
+      api.slowNextDelivery = 'stored';
+      const found = await createOrFind(new ApiClient(api.url, 'dispatcher-token'), input, 200);
+      expect(found.orderReference).toBe('DEMO-000123');
+      expect(api.deliveries).toHaveLength(1);
+    } finally {
+      await api.stop();
+    }
+  });
+
+  it('reports the timeout when the order is not there either', async () => {
+    const api = new FakeApi();
+    await api.start();
+    try {
+      api.slowNextDelivery = 'lost';
+      await expect(
+        createOrFind(new ApiClient(api.url, 'dispatcher-token'), input, 200),
+      ).rejects.toThrow(/^POST \/v1\/deliveries: .*timeout/);
+    } finally {
+      await api.stop();
+    }
   });
 });
 

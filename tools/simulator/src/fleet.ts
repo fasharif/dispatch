@@ -26,6 +26,12 @@ export interface SeedOptions {
   /** The name of driver i (0-based). */
   name: (index: number) => string;
   concurrency?: number;
+  /**
+   * A fleet file from an earlier run against the same API. A driver whose phone token still works
+   * keeps it, so a second demo run enrols nobody (enrolment is rate limited, and every new phone
+   * revokes the previous one).
+   */
+  reuse?: Fleet | null;
 }
 
 /** "Load Driver 0001", "Load Driver 0002", … */
@@ -60,10 +66,11 @@ export function demoDriverName(index: number): string {
  * Creates drivers the way a dispatcher would (console → new driver → enrolment code) and enrols
  * one simulated phone for each, then puts every driver on shift.
  *
- * Running it again is safe: a driver that already exists under the same name is reused (it gets
- * a new enrolment code and a new simulated phone) instead of being created twice. After a
- * network error on "create", the driver list is read again before trying once more, because the
- * first request may have reached the API.
+ * Running it again is safe: a driver that already exists under the same name is reused instead of
+ * being created twice. With `reuse`, a driver whose phone token still works keeps that phone;
+ * otherwise the driver gets a new enrolment code and a new simulated phone, which revokes the old
+ * one. After a network error on "create", the driver list is read again before trying once more,
+ * because the first request may have reached the API.
  */
 export async function seedFleet(options: SeedOptions): Promise<Fleet> {
   const anonymous = new ApiClient(options.api);
@@ -91,6 +98,25 @@ export async function seedFleet(options: SeedOptions): Promise<Fleet> {
     }
   };
 
+  const previous = new Map(
+    options.reuse?.api === options.api
+      ? options.reuse.drivers.map((driver) => [driver.name, driver] as const)
+      : [],
+  );
+  /** The earlier phone, if its token still works: it goes on shift with it. */
+  const reusePhone = async (name: string): Promise<FleetDriver | null> => {
+    const earlier = previous.get(name);
+    if (!earlier) return null;
+    try {
+      const driver = await retry(() => anonymous.withToken(earlier.token).setShift(true));
+      return driver.id === earlier.driverId ? earlier : null;
+    } catch (error) {
+      // 401: revoked, or the stack was created again. Enrol a new phone instead.
+      if (error instanceof ApiError && error.status === 401) return null;
+      throw error;
+    }
+  };
+
   const drivers: FleetDriver[] = [];
   const indexes = Array.from({ length: options.drivers }, (_, i) => i);
   const concurrency = options.concurrency ?? 8;
@@ -100,6 +126,8 @@ export async function seedFleet(options: SeedOptions): Promise<Fleet> {
       ...(await Promise.all(
         chunk.map(async (i) => {
           const name = options.name(i);
+          const kept = await reusePhone(name);
+          if (kept) return kept;
           // A code works once. If the answer to "enrol" is lost, the next attempt needs a new code.
           const device = await retry(async () =>
             anonymous.enrol(

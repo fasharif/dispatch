@@ -33,7 +33,8 @@ blob-report/
 load/results/*
 !load/results/.gitkeep
 
-# Local data
+# Local data (fleet files hold device tokens)
+fleet.json
 apps/web/public/tiles/*.pmtiles
 data/
 uploads/

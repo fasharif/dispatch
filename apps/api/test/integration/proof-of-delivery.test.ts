@@ -1,4 +1,6 @@
 import type { DeliveryDetailDto, DeliveryDto, WebhookEnvelope } from '@dispatch/shared';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   Api,
@@ -42,6 +44,10 @@ describe('proof of delivery', () => {
     delivery = await createDelivery(dispatcher, { autoAssign: true });
     await driver.api.post(`/v1/driver/deliveries/${delivery.id}/pickup`);
   });
+
+  /** Photo files stored for a delivery (PhotoStorage keeps one folder per delivery). */
+  const photosOf = (deliveryId: string): Promise<string[]> =>
+    readdir(join(t.config.uploads.dir, deliveryId)).catch(() => []);
 
   const complete = (form: FormData, key?: string) =>
     fetch(`${t.url}/v1/driver/deliveries/${delivery.id}/complete`, {
@@ -141,6 +147,45 @@ describe('proof of delivery', () => {
     expect(other.status).toBe(409);
     const events = await t.db.query(`SELECT 1 FROM outbox WHERE type = 'delivery.completed'`);
     expect(events).toHaveLength(1);
+  });
+
+  it('answers two concurrent retries with the same key alike, and keeps one photo', async () => {
+    const key = 'pod-concurrent-0001';
+    const [first, second] = await Promise.all([
+      complete(proofForm(AT_THE_GATE), key),
+      complete(proofForm(AT_THE_GATE), key),
+    ]);
+    expect([first.status, second.status]).toEqual([200, 200]);
+    const events = await t.db.query(`SELECT 1 FROM outbox WHERE type = 'delivery.completed'`);
+    expect(events).toHaveLength(1);
+    expect(await photosOf(delivery.id)).toHaveLength(1);
+  });
+
+  it('refuses a malformed Idempotency-Key instead of ignoring it', async () => {
+    const res = await complete(proofForm(AT_THE_GATE), 'short');
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toMatch(/Idempotency-Key/);
+    expect((await dispatcher.get<DeliveryDto>(`/v1/deliveries/${delivery.id}`)).body.status).toBe(
+      'picked_up',
+    );
+  });
+
+  it("writes nothing to disk for another driver's delivery", async () => {
+    const other = await enrolDriver(dispatcher, 'Other Driver');
+    const res = await fetch(`${t.url}/v1/driver/deliveries/${delivery.id}/complete`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${other.api.token ?? ''}` },
+      body: proofForm(AT_THE_GATE),
+    });
+    expect(res.status).toBe(403);
+    expect(await photosOf(delivery.id)).toEqual([]);
+  });
+
+  it('refuses a photo above MAX_PHOTO_BYTES with 413', async () => {
+    const big = Buffer.concat([PNG_1X1, Buffer.alloc(t.config.uploads.maxPhotoBytes)]);
+    const res = await complete(proofForm(AT_THE_GATE, 6, big));
+    expect(res.status).toBe(413);
+    expect(await photosOf(delivery.id)).toEqual([]);
   });
 
   it('does not complete a delivery that was never picked up', async () => {

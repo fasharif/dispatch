@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { MulterModule } from '@nestjs/platform-express';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AccessGuard } from './auth/access.guard.js';
 import { DeviceTokens } from './auth/device-tokens.js';
@@ -47,6 +48,14 @@ import { TrackingService } from './tracking/tracking.service.js';
       useFactory: (config: AppConfig, redis: RedisService) => ({
         throttlers: [{ name: 'default', ttl: 60_000, limit: config.http.throttleLimit }],
         storage: new RedisThrottlerStorage(redis.client),
+      }),
+    }),
+    // Proof-of-delivery uploads: multer stops reading at MAX_PHOTO_BYTES, so an oversized upload
+    // is refused with 413 before it is buffered in full.
+    MulterModule.registerAsync({
+      inject: [APP_CONFIG],
+      useFactory: (config: AppConfig) => ({
+        limits: { fileSize: config.uploads.maxPhotoBytes, files: 1, fields: 4 },
       }),
     }),
   ],

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -41,6 +42,7 @@ import { TrackingService } from '../tracking/tracking.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 
 const uuid = new ParseUUIDPipe();
+const IDEMPOTENCY_KEY = /^[\w-]{8,100}$/;
 const candidatesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(5),
 });
@@ -162,13 +164,14 @@ export class DriverDeliveriesController {
     return this.deliveries.pickUp(id, device);
   }
 
-  /** multipart/form-data: `proof` (JSON, see proofOfDeliverySchema) and `photo` (image file). */
+  /**
+   * multipart/form-data: `proof` (JSON, see proofOfDeliverySchema) and `photo` (image file).
+   * The upload limits (MAX_PHOTO_BYTES, one file) are set for the whole module in AppModule.
+   * An optional Idempotency-Key header makes a retry answer like the first attempt.
+   */
   @Post(':id/complete')
   @HttpCode(HttpStatus.OK)
-  // 25 MB is the transport ceiling; the configured MAX_PHOTO_BYTES is enforced in the service.
-  @UseInterceptors(
-    FileInterceptor('photo', { limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 4 } }),
-  )
+  @UseInterceptors(FileInterceptor('photo'))
   complete(
     @Param('id', uuid) id: string,
     @CurrentDevice() device: DevicePrincipal,
@@ -176,8 +179,12 @@ export class DriverDeliveriesController {
     @UploadedFile() photo: UploadedPhoto | undefined,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
   ): Promise<DeliveryDto> {
-    const key = idempotencyKey && /^[\w-]{8,100}$/.test(idempotencyKey) ? idempotencyKey : null;
-    return this.proof.complete(id, device, proof, photo, key);
+    if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      throw new BadRequestException(
+        'The Idempotency-Key header must be 8 to 100 letters, digits, underscores or hyphens',
+      );
+    }
+    return this.proof.complete(id, device, proof, photo, idempotencyKey ?? null);
   }
 
   @Post(':id/fail')

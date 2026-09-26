@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   PayloadTooLargeException,
@@ -11,13 +12,14 @@ import {
   ErrorCode,
   assertTransition,
   type DeliveryDto,
+  type DeliveryStatus,
   type ProofOfDeliveryInput,
 } from '@dispatch/shared';
 import type { ReadStream } from 'node:fs';
 import { InjectConfig } from '../config/config.module.js';
 import type { AppConfig } from '../config/env.js';
 import type { DevicePrincipal } from '../common/request-context.js';
-import { Database, one } from '../db/database.js';
+import { Database, maybeOne, one, type Queryable } from '../db/database.js';
 import {
   DeliveriesService,
   driverActor,
@@ -73,16 +75,22 @@ export class ProofService {
       });
     }
 
-    // A retry of a completion that already succeeded returns the same result.
-    if (idempotencyKey && (await this.alreadyCompleted(id, device, idempotencyKey))) {
+    // Cheap checks before anything is written to disk: the delivery exists, belongs to this
+    // driver and can still be completed, or this is a retry of a completion that succeeded.
+    if (await this.checkBeforeUpload(id, device, idempotencyKey)) {
       return this.deliveries.get(id);
     }
 
     const stored = await this.photos.save(id, photo.buffer, image.extension);
-    let effects: ChangeEffects;
+    let effects: ChangeEffects | 'already-completed';
     try {
       effects = await this.db.tx(async (client) => {
         const delivery = await this.deliveries.lockForDriver(client, id, device);
+        // A concurrent retry with the same key may have completed it while this one waited.
+        if (delivery.status === 'delivered') {
+          if (await this.completedWithKey(client, id, idempotencyKey)) return 'already-completed';
+          throw new ConflictException('This delivery has already been completed');
+        }
         assertTransition(delivery.status, 'delivered');
 
         const radius =
@@ -168,6 +176,10 @@ export class ProofService {
       await this.photos.remove(stored.path).catch(() => undefined);
       throw error;
     }
+    if (effects === 'already-completed') {
+      await this.photos.remove(stored.path).catch(() => undefined);
+      return this.deliveries.get(id);
+    }
     return this.deliveries.afterCommit(effects);
   }
 
@@ -188,24 +200,42 @@ export class ProofService {
     };
   }
 
-  private async alreadyCompleted(
+  /**
+   * Returns true when this is a retry of a completion that already succeeded with the same
+   * Idempotency-Key; throws when the delivery cannot be completed by this device.
+   */
+  private async checkBeforeUpload(
     id: string,
     device: DevicePrincipal,
-    idempotencyKey: string,
+    idempotencyKey: string | null,
   ): Promise<boolean> {
-    const row = await this.db.maybeOne<{
-      idempotency_key: string | null;
-      driver_id: string | null;
-    }>(
-      `SELECT p.idempotency_key, d.driver_id
-         FROM proofs_of_delivery p JOIN deliveries d ON d.id = p.delivery_id
-        WHERE p.delivery_id = $1`,
+    const row = await this.db.maybeOne<{ driver_id: string | null; status: DeliveryStatus }>(
+      'SELECT driver_id, status FROM deliveries WHERE id = $1',
       [id],
     );
-    if (!row) return false;
-    if (row.driver_id !== device.driverId || row.idempotency_key !== idempotencyKey) {
+    if (!row) throw new NotFoundException('Delivery not found');
+    if (row.driver_id !== device.driverId) {
+      throw new ForbiddenException('This delivery is not assigned to you');
+    }
+    if (row.status === 'delivered') {
+      if (await this.completedWithKey(this.db.pool, id, idempotencyKey)) return true;
       throw new ConflictException('This delivery has already been completed');
     }
-    return true;
+    assertTransition(row.status, 'delivered');
+    return false;
+  }
+
+  private async completedWithKey(
+    client: Queryable,
+    id: string,
+    idempotencyKey: string | null,
+  ): Promise<boolean> {
+    if (!idempotencyKey) return false;
+    const proof = await maybeOne<{ idempotency_key: string | null }>(
+      client,
+      'SELECT idempotency_key FROM proofs_of_delivery WHERE delivery_id = $1',
+      [id],
+    );
+    return proof?.idempotency_key === idempotencyKey;
   }
 }

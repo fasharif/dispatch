@@ -244,7 +244,7 @@ export class DeliveriesService {
         await client.query(
           `UPDATE deliveries
             SET status = 'assigned', driver_id = $2, assignment_mode = $3,
-                assigned_at = now(), updated_at = now()
+                assigned_at = now(), updated_at = clock_timestamp()
           WHERE id = $1`,
           [id, driver.id, mode],
         );
@@ -283,7 +283,7 @@ export class DeliveriesService {
       const delivery = await this.lockForDriver(client, id, device);
       assertTransition(delivery.status, 'picked_up');
       await client.query(
-        `UPDATE deliveries SET status = 'picked_up', picked_up_at = now(), updated_at = now() WHERE id = $1`,
+        `UPDATE deliveries SET status = 'picked_up', picked_up_at = now(), updated_at = clock_timestamp() WHERE id = $1`,
         [id],
       );
       await this.recordEvent(
@@ -398,7 +398,7 @@ export class DeliveriesService {
     actor: Actor,
   ): Promise<ChangeEffects> {
     await client.query(
-      `UPDATE deliveries SET status = $2, failure_reason = $3, closed_at = now(), updated_at = now()
+      `UPDATE deliveries SET status = $2, failure_reason = $3, closed_at = now(), updated_at = clock_timestamp()
         WHERE id = $1`,
       [delivery.id, status, reason],
     );

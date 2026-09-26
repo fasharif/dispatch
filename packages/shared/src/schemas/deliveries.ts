@@ -113,6 +113,8 @@ export const deliverySchema = z.object({
   assignmentMode: z.enum(['auto', 'manual']).nullable(),
   failureReason: z.string().nullable(),
   createdAt: isoDateTimeSchema,
+  /** Changes with every change of the delivery: clients keep the newest version they receive. */
+  updatedAt: isoDateTimeSchema,
   assignedAt: isoDateTimeSchema.nullable(),
   pickedUpAt: isoDateTimeSchema.nullable(),
   completedAt: isoDateTimeSchema.nullable(),

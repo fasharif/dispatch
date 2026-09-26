@@ -14,7 +14,7 @@ export const DELIVERY_SELECT = `
          ST_Y(dl.pickup::geometry) AS pickup_lat, ST_X(dl.pickup::geometry) AS pickup_lng,
          ST_Y(dl.dropoff::geometry) AS dropoff_lat, ST_X(dl.dropoff::geometry) AS dropoff_lng,
          dl.driver_id, dr.name AS driver_name, dl.assignment_mode, dl.failure_reason,
-         dl.created_at, dl.assigned_at, dl.picked_up_at, dl.completed_at, dl.closed_at,
+         dl.created_at, dl.updated_at, dl.assigned_at, dl.picked_up_at, dl.completed_at, dl.closed_at,
          p.recipient_name AS proof_recipient_name, p.captured_at AS proof_captured_at,
          p.within_geofence AS proof_within_geofence, p.distance_m AS proof_distance_m,
          p.geofence_radius_m AS proof_radius_m, p.signature AS proof_signature
@@ -39,6 +39,7 @@ export interface DeliveryRow {
   assignment_mode: 'auto' | 'manual' | null;
   failure_reason: string | null;
   created_at: Date;
+  updated_at: Date;
   assigned_at: Date | null;
   picked_up_at: Date | null;
   completed_at: Date | null;
@@ -68,6 +69,7 @@ export function toDeliveryDto(row: DeliveryRow): DeliveryDto {
     assignmentMode: row.assignment_mode,
     failureReason: row.failure_reason,
     createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
     assignedAt: iso(row.assigned_at),
     pickedUpAt: iso(row.picked_up_at),
     completedAt: iso(row.completed_at),

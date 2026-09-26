@@ -138,7 +138,7 @@ export class ProofService {
           ],
         );
         await client.query(
-          `UPDATE deliveries SET status = 'delivered', completed_at = now(), updated_at = now()
+          `UPDATE deliveries SET status = 'delivered', completed_at = now(), updated_at = clock_timestamp()
             WHERE id = $1`,
           [id],
         );

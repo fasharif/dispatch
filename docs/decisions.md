@@ -249,9 +249,10 @@ the app is in the background or offline must reach the server once each, in orde
 crash. Expo modules only run on a device or simulator, which CI does not have.
 
 **Decision.** Background location with `expo-location` and `expo-task-manager`, by time rather
-than distance: expo-location treats `timeInterval` and `distanceInterval` as minimums that must
-both be met, so the first version (5 seconds and 10 metres) sent nothing for a driver standing
-still, who then went stale after `DRIVER_STALE_AFTER_S` and was skipped by automatic assignment.
+than distance. expo-location documents `timeInterval` and `distanceInterval` as minimums that
+must both be met, so by that documentation the first version (5 seconds and 10 metres) would send
+nothing for a driver standing still, who would go stale after `DRIVER_STALE_AFTER_S` and be
+skipped by automatic assignment (found in review; the app has not run on a device).
 `distanceInterval` is now 0: Android reports every 5 seconds; iOS, which ignores the interval,
 reports as positions arrive and the queue keeps at most one every 4 seconds; while the app is
 open on shift, a heartbeat asks for a position after 30 seconds without one. The values live in

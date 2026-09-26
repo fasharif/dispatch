@@ -27,6 +27,24 @@ interface StoredFix {
   sent_at: Date | null;
 }
 
+/** A stored fix that is already on the live stream. */
+type PublishedFix = StoredFix & { stream_id: string };
+
+function unpublished(device: DevicePrincipal, fix: StoredFix): UnpublishedLocation {
+  return {
+    driverId: device.driverId,
+    deviceId: device.deviceId,
+    seq: fix.seq,
+    lat: fix.lat,
+    lng: fix.lng,
+    accuracyM: fix.accuracy_m,
+    speedMps: fix.speed_mps,
+    headingDeg: fix.heading_deg,
+    recordedAt: fix.recorded_at.toISOString(),
+    sentAt: fix.sent_at ? fix.sent_at.getTime() : null,
+  };
+}
+
 /**
  * Ingests batches of fixes from drivers' devices.
  *
@@ -35,9 +53,13 @@ interface StoredFix {
  * 2. The driver's current position moves only forward in time (by recorded_at), whatever order
  *    fixes arrive in.
  * 3. New fixes are appended to the live stream and broadcast; the stream id is saved with the
- *    fix. A replay of a fix that was stored but never published (the process died in between)
- *    publishes it then. The response is sent only after publishing, so a 2xx means "on the
- *    live stream".
+ *    fix. The response is sent only after publishing, so a 2xx means "on the live stream".
+ * 4. A replay means the device never saw the first answer, so this instance cannot know how far
+ *    the first attempt got. A fix stored but never appended to the stream (stream_id still null)
+ *    is published now. A fix already on the stream is broadcast again under its original stream
+ *    id: the first instance may have died after saving the stream id but before the Redis adapter
+ *    passed the broadcast on, and a console that stayed connected to another instance would never
+ *    ask the stream for it. Consoles drop the repeat by device and sequence number.
  */
 @Injectable()
 export class LocationsService {
@@ -72,7 +94,7 @@ export class LocationsService {
     }
     const sentAt = batch.sentAt ? new Date(batch.sentAt) : null;
 
-    const toPublish = await this.db.tx(async (client) => {
+    const { toPublish, toRebroadcast } = await this.db.tx(async (client) => {
       const inserted = new Set(
         candidates.length === 0
           ? []
@@ -120,6 +142,7 @@ export class LocationsService {
       );
 
       const publish: StoredFix[] = [];
+      const rebroadcast: PublishedFix[] = [];
       for (const point of candidates) {
         const row = bySeq.get(point.seq);
         if (inserted.has(point.seq) && row) {
@@ -128,6 +151,7 @@ export class LocationsService {
         } else if (row && row.idempotency_key === point.idempotencyKey) {
           statuses.set(point.seq, { status: 'duplicate' });
           if (row.stream_id === null) publish.push(row);
+          else rebroadcast.push({ ...row, stream_id: row.stream_id });
         } else {
           statuses.set(point.seq, {
             status: 'conflict',
@@ -151,10 +175,23 @@ export class LocationsService {
           [device.driverId, newest.lng, newest.lat, newest.accuracy_m, newest.recorded_at],
         );
       }
-      return publish.sort((a, b) => a.seq - b.seq);
+      return {
+        toPublish: publish.sort((a, b) => a.seq - b.seq),
+        toRebroadcast: rebroadcast.sort((a, b) => a.seq - b.seq),
+      };
     });
 
     if (toPublish.length > 0) await this.publish(device, toPublish);
+    if (toRebroadcast.length > 0) {
+      this.realtime.driverLocations(
+        toRebroadcast.map((fix) => ({
+          ...unpublished(device, fix),
+          id: fix.stream_id,
+          // The stream id starts with the Redis clock (ms) at the original append.
+          publishedAt: Number(fix.stream_id.split('-')[0]),
+        })),
+      );
+    }
 
     const results = batch.points.map((point) => {
       const outcome = statuses.get(point.seq) ?? { status: 'rejected' as const };
@@ -173,21 +210,9 @@ export class LocationsService {
   }
 
   private async publish(device: DevicePrincipal, fixes: StoredFix[]): Promise<void> {
-    const unpublished: UnpublishedLocation[] = fixes.map((fix) => ({
-      driverId: device.driverId,
-      deviceId: device.deviceId,
-      seq: fix.seq,
-      lat: fix.lat,
-      lng: fix.lng,
-      accuracyM: fix.accuracy_m,
-      speedMps: fix.speed_mps,
-      headingDeg: fix.heading_deg,
-      recordedAt: fix.recorded_at.toISOString(),
-      sentAt: fix.sent_at ? fix.sent_at.getTime() : null,
-    }));
     let events;
     try {
-      events = await this.stream.append(unpublished);
+      events = await this.stream.append(fixes.map((fix) => unpublished(device, fix)));
     } catch (error) {
       // Stored but not published: the device keeps the batch and sends it again, and the
       // replay publishes these fixes (their stream_id is still null).

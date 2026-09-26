@@ -1,5 +1,12 @@
-import { LiveFeed, fixKey, type DriverLocationEvent, type LocationPoint } from '@dispatch/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  LiveFeed,
+  fixKey,
+  type DriverLocationEvent,
+  type LocationBatchResult,
+  type LocationPoint,
+} from '@dispatch/shared';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { RealtimePublisher } from '../../src/realtime/realtime.publisher.js';
 import {
   Api,
   enrolDriver,
@@ -55,6 +62,41 @@ describe('two API instances (e2e)', () => {
     expect(seenA.map((e) => e.seq)).toEqual([0, 1]);
     expect(seenB.map((e) => e.seq)).toEqual([0, 1]);
     onA.close();
+    onB.close();
+  });
+
+  it('broadcasts a replayed fix again when its first broadcast never left the dead instance', async () => {
+    // Instance A stores the fix and appends it to the stream, then "dies" before the Redis adapter
+    // passes the broadcast on. The device never gets an answer and replays the batch to B with a
+    // new fix. A console that stayed on B throughout must still receive both.
+    const onB = await connectDispatch(b.url, dispatcher.token ?? '');
+    const seen = collect<DriverLocationEvent>(onB, 'driver:location');
+    const driver = await enrolDriver(dispatcher, 'Aisha Rahman');
+    const first = fix(driver, 25.2, 55.27);
+
+    vi.spyOn(a.app.get(RealtimePublisher), 'driverLocations').mockImplementationOnce(
+      () => undefined,
+    );
+    const lost = await new Api(a.url, driver.api.token).post('/v1/driver/locations', {
+      points: [first],
+    });
+    expect(lost.status).toBe(200);
+    const stored = await a.db.one<{ stream_id: string | null }>(
+      'SELECT stream_id FROM location_updates WHERE device_id = $1 AND seq = 0',
+      [driver.deviceId],
+    );
+    expect(stored.stream_id).not.toBeNull();
+
+    const replay = await new Api(b.url, driver.api.token).post<LocationBatchResult>(
+      '/v1/driver/locations',
+      { points: [first, fix(driver, 25.201, 55.271)] },
+    );
+    expect(replay.body.results.map((r) => r.status)).toEqual(['duplicate', 'accepted']);
+
+    await eventually(() => seen.length === 2);
+    expect(seen.map((e) => e.seq).sort()).toEqual([0, 1]);
+    // The repeat carries the stream id of the original append, so resume cursors stay valid.
+    expect(seen.find((e) => e.seq === 0)?.id).toBe(stored.stream_id);
     onB.close();
   });
 

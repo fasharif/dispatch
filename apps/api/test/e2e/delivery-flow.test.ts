@@ -9,6 +9,7 @@ import {
   type WebhookEnvelope,
 } from '@dispatch/shared';
 import { SignJWT, decodeJwt } from 'jose';
+import { writeFile } from 'node:fs/promises';
 import { io } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyWebhook } from '../../src/outbox/webhook-signature.js';
@@ -148,6 +149,30 @@ describe('delivery flow (e2e)', () => {
       },
     });
     customer.close();
+
+    // RECORD_WEBHOOK_FIXTURE=<file> saves these signed requests as the contract fixture that
+    // dispatch and TopFlow Hub both test against (apps/api/test/fixtures/README.md).
+    const fixture = process.env.RECORD_WEBHOOK_FIXTURE;
+    if (fixture) {
+      const order = ['delivery.assigned', 'delivery.picked_up', 'delivery.completed'];
+      const recorded = events
+        .map((r) => ({
+          headers: Object.fromEntries(
+            ['x-dispatch-event-id', 'x-dispatch-event-type', 'x-dispatch-signature'].map((h) => [
+              h,
+              r.headers[h],
+            ]),
+          ),
+          body: r.body,
+        }))
+        .sort(
+          (a, b) =>
+            order.indexOf(a.headers['x-dispatch-event-type'] as string) -
+            order.indexOf(b.headers['x-dispatch-event-type'] as string),
+        );
+      const file = { recordedAt: new Date().toISOString(), secret: SECRET, requests: recorded };
+      await writeFile(fixture, `${JSON.stringify(file, null, 2)}\n`);
+    }
   });
 
   it('lets a reconnecting console catch up on positions it missed', async () => {

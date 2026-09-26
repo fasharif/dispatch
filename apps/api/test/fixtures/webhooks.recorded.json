@@ -1,0 +1,30 @@
+{
+  "recordedAt": "2026-09-26T02:54:13.372Z",
+  "secret": "e2e-webhook-secret-e2e-webhook-secret-0000",
+  "requests": [
+    {
+      "headers": {
+        "x-dispatch-event-id": "0dfda5f3-1d0e-4693-9226-1f658074b66d",
+        "x-dispatch-event-type": "delivery.assigned",
+        "x-dispatch-signature": "t=1790391253,v1=8504eff3d8b9aabb3308f9252743435378e09077cbd39ed3184b9f670d21444c"
+      },
+      "body": "{\"id\":\"0dfda5f3-1d0e-4693-9226-1f658074b66d\",\"data\":{\"driver\":{\"id\":\"b1d57746-9764-4408-bbf7-53ec5bb81c76\",\"name\":\"Omar Haddad\"},\"status\":\"assigned\",\"deliveryId\":\"3772c9dd-e3a5-465d-9957-d8a0291b70b9\",\"occurredAt\":\"2026-09-26T02:54:13.132Z\",\"trackingUrl\":\"http://localhost:57300/track/v1.eyJkIjoiMzc3MmM5ZGQtZTNhNS00NjVkLTk5NTctZDhhMDI5MWI3MGI5IiwiZSI6MTc5MDU2NDA1M30.KDZ9LbpBUqk2s6agvkyQ0mYOscWr6qm2u7xBJeAAwv8\",\"orderReference\":\"TF-SO-2026-900001-5af0\"},\"type\":\"delivery.assigned\",\"createdAt\":\"2026-09-26T02:54:13.132Z\"}"
+    },
+    {
+      "headers": {
+        "x-dispatch-event-id": "84ae1580-4dca-497d-95ef-6a2f053b1759",
+        "x-dispatch-event-type": "delivery.picked_up",
+        "x-dispatch-signature": "t=1790391253,v1=23509a589af82de7f4a94bf43161ff8209419981600c39157fc02da2fdb75891"
+      },
+      "body": "{\"id\":\"84ae1580-4dca-497d-95ef-6a2f053b1759\",\"data\":{\"driver\":{\"id\":\"b1d57746-9764-4408-bbf7-53ec5bb81c76\",\"name\":\"Omar Haddad\"},\"status\":\"picked_up\",\"deliveryId\":\"3772c9dd-e3a5-465d-9957-d8a0291b70b9\",\"occurredAt\":\"2026-09-26T02:54:13.238Z\",\"orderReference\":\"TF-SO-2026-900001-5af0\"},\"type\":\"delivery.picked_up\",\"createdAt\":\"2026-09-26T02:54:13.238Z\"}"
+    },
+    {
+      "headers": {
+        "x-dispatch-event-id": "b73029c8-199d-426d-b7b5-2eb16dccf154",
+        "x-dispatch-event-type": "delivery.completed",
+        "x-dispatch-signature": "t=1790391253,v1=0fe467c87d9825eb6a9057d2e418bc19a6355faf66fadb97ff201373f66bbc33"
+      },
+      "body": "{\"id\":\"b73029c8-199d-426d-b7b5-2eb16dccf154\",\"data\":{\"proof\":{\"hasPhoto\":true,\"capturedAt\":\"2026-09-26T02:54:13.264Z\",\"hasSignature\":true,\"recipientName\":\"Aisha Rahman\",\"distanceMeters\":99.7,\"withinGeofence\":true},\"driver\":{\"id\":\"b1d57746-9764-4408-bbf7-53ec5bb81c76\",\"name\":\"Omar Haddad\"},\"status\":\"delivered\",\"deliveryId\":\"3772c9dd-e3a5-465d-9957-d8a0291b70b9\",\"occurredAt\":\"2026-09-26T02:54:13.294Z\",\"orderReference\":\"TF-SO-2026-900001-5af0\"},\"type\":\"delivery.completed\",\"createdAt\":\"2026-09-26T02:54:13.294Z\"}"
+    }
+  ]
+}

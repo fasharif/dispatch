@@ -16,6 +16,12 @@
 #
 # Results go to load/results/<timestamp>/. Latency percentiles are recorded there; see
 # docs/scale-test.md for when they are published.
+#
+# Every name follows the compose project, so a second stack can run beside another one, e.g.
+#   COMPOSE_PROJECT_NAME=dispatch-b DISPATCH_HTTP_PORT=57180 DISPATCH_POSTGRES_PORT=57532 \
+#   DISPATCH_REDIS_PORT=57479 load/run-scale-test.sh
+# Memory limits: API_MEMORY and POSTGRES_MEMORY (docker-compose.yml), K6_MEMORY (512m) and
+# LISTENER_MEMORY (256m) here. The defaults have been used for runs of up to 50 drivers only.
 set -euo pipefail
 
 DRIVERS=50
@@ -38,7 +44,14 @@ RUN="$(date -u +%Y%m%dT%H%M%SZ)"
 RESULTS="load/results/$RUN"
 RESULTS_HOST="$ROOT_HOST/load/results/$RUN"
 LOAD_HOST="$ROOT_HOST/load"
-NETWORK=dispatch_default
+# The project name decides the network, image and container names (docker-compose.yml).
+PROJECT="${COMPOSE_PROJECT_NAME:-dispatch}"
+export COMPOSE_PROJECT_NAME="$PROJECT"
+NETWORK="${PROJECT}_default"
+TOOLS_IMAGE="$PROJECT-tools:local"
+K6_CONTAINER="$PROJECT-k6"
+K6_MEMORY="${K6_MEMORY:-512m}"
+LISTENER_MEMORY="${LISTENER_MEMORY:-256m}"
 export MSYS_NO_PATHCONV=1
 mkdir -p "$RESULTS"
 
@@ -54,7 +67,8 @@ cleanup() {
     # Keep the services' logs next to the results for diagnosis (CI uploads the folder).
     docker compose --profile stack logs --no-color --timestamps > "$RESULTS/stack.log" 2>&1 || true
   fi
-  docker rm -f dispatch-listener-lb dispatch-listener-survivor dispatch-k6 >/dev/null 2>&1 || true
+  docker rm -f "$PROJECT-listener-lb" "$PROJECT-listener-survivor" "$K6_CONTAINER" \
+    >/dev/null 2>&1 || true
   if [[ "$KEEP_STACK" == false ]]; then
     log "Stopping the stack"
     docker compose --profile stack down -v >/dev/null 2>&1 || true
@@ -63,7 +77,7 @@ cleanup() {
 trap cleanup EXIT
 
 log "Building images and starting the stack (two API instances, worker, nginx)"
-docker build -q -f apps/api/Dockerfile --target tools -t dispatch-tools:local . >/dev/null
+docker build -q -f apps/api/Dockerfile --target tools -t "$TOOLS_IMAGE" . >/dev/null
 # Enrolment is rate-limited per address; the whole simulated fleet enrols from one container.
 AUTH_THROTTLE_LIMIT=100000 docker compose --profile stack up -d --build --wait \
   postgres redis migrate api-1 api-2 worker nginx >/dev/null
@@ -71,14 +85,14 @@ AUTH_THROTTLE_LIMIT=100000 docker compose --profile stack up -d --build --wait \
 # The harness containers run as root: they share the results folder, where the fleet file (device
 # tokens) is readable by its owner only, and non-root users cannot read bind mounts on every host.
 tools() {
-  docker run --rm --user root --network "$NETWORK" --memory 256m \
-    -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local "$@"
+  docker run --rm --user root --network "$NETWORK" --memory "$LISTENER_MEMORY" \
+    -v "$RESULTS_HOST:/work" -w /work "$TOOLS_IMAGE" "$@"
 }
 
 # listener <container> <api url> <report file>: a console that records what it receives.
 listener() {
-  docker run -d --name "$1" --user root --network "$NETWORK" --memory 256m \
-    -v "$RESULTS_HOST:/work" -w /work dispatch-tools:local \
+  docker run -d --name "$1" --user root --network "$NETWORK" --memory "$LISTENER_MEMORY" \
+    -v "$RESULTS_HOST:/work" -w /work "$TOOLS_IMAGE" \
     listen --api "$2" --duration "$LISTEN_FOR" --out "/work/$3" >/dev/null
 }
 
@@ -101,17 +115,17 @@ tools seed --api http://nginx --drivers "$DRIVERS" --prefix "Load Driver" --flee
 
 LISTEN_FOR=$((DURATION + 40))
 log "Starting the reconnecting console (through nginx) for ${LISTEN_FOR}s"
-listener dispatch-listener-lb http://nginx listen-lb.json
-VICTIM="$(serving_instance dispatch-listener-lb)" ||
-  fail "the console behind nginx did not report its instance (see docker logs dispatch-listener-lb)"
+listener "$PROJECT-listener-lb" http://nginx listen-lb.json
+VICTIM="$(serving_instance "$PROJECT-listener-lb")" ||
+  fail "the console behind nginx did not report its instance (see docker logs $PROJECT-listener-lb)"
 if [[ "$VICTIM" == api-1 ]]; then SURVIVOR=api-2; else SURVIVOR=api-1; fi
 log "It is served by $VICTIM, which will be killed; starting the surviving console on $SURVIVOR"
-listener dispatch-listener-survivor "http://$SURVIVOR:3000" listen-survivor.json
-serving_instance dispatch-listener-survivor >/dev/null ||
-  fail "the console on $SURVIVOR did not connect (see docker logs dispatch-listener-survivor)"
+listener "$PROJECT-listener-survivor" "http://$SURVIVOR:3000" listen-survivor.json
+serving_instance "$PROJECT-listener-survivor" >/dev/null ||
+  fail "the console on $SURVIVOR did not connect (see docker logs $PROJECT-listener-survivor)"
 
 log "Running k6: $DRIVERS drivers, a fix every ${INTERVAL}s, for ${DURATION}s"
-docker run -d --name dispatch-k6 --user root --network "$NETWORK" --memory 512m \
+docker run -d --name "$K6_CONTAINER" --user root --network "$NETWORK" --memory "$K6_MEMORY" \
   -v "$LOAD_HOST:/scripts:ro" -v "$RESULTS_HOST:/results:ro" \
   -e FLEET=/results/fleet.json -e API_URL=http://nginx \
   -e DURATION="${DURATION}s" -e INTERVAL_S="$INTERVAL" \
@@ -119,17 +133,17 @@ docker run -d --name dispatch-k6 --user root --network "$NETWORK" --memory 512m 
 
 sleep $((DURATION / 2))
 KILLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-log "Killing dispatch-$VICTIM (SIGKILL) mid-test"
-docker kill --signal KILL "dispatch-$VICTIM" >/dev/null
+log "Killing $VICTIM (SIGKILL) mid-test"
+docker compose --profile stack kill --signal KILL "$VICTIM" >/dev/null 2>&1
 
-docker wait dispatch-k6 >/dev/null
-docker logs dispatch-k6 > "$RESULTS/k6.log" 2>&1 || true
+docker wait "$K6_CONTAINER" >/dev/null
+docker logs "$K6_CONTAINER" > "$RESULTS/k6.log" 2>&1 || true
 grep '^{' "$RESULTS/k6.log" | tail -n 1 > "$RESULTS/k6-summary.json" || true
 [[ -s "$RESULTS/k6-summary.json" ]] || fail "k6 produced no summary (see $RESULTS/k6.log)"
 log "k6 finished: $(cat "$RESULTS/k6-summary.json")"
 for name in lb survivor; do
-  docker wait "dispatch-listener-$name" >/dev/null
-  docker logs "dispatch-listener-$name" > "$RESULTS/listener-$name.log" 2>&1
+  docker wait "$PROJECT-listener-$name" >/dev/null
+  docker logs "$PROJECT-listener-$name" > "$RESULTS/listener-$name.log" 2>&1
 done
 
 log "Comparing what the database stored with what each console received"
@@ -150,8 +164,8 @@ cat > "$RESULTS/run.json" <<JSON
   "drivers": $DRIVERS,
   "durationSeconds": $DURATION,
   "intervalSeconds": $INTERVAL,
-  "killedInstance": "dispatch-$VICTIM",
-  "survivingInstance": "dispatch-$SURVIVOR",
+  "killedInstance": "$VICTIM",
+  "survivingInstance": "$SURVIVOR",
   "killedAt": "$KILLED_AT",
   "gitCommit": "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)",
   "host": {

@@ -32,7 +32,7 @@ flowchart LR
 5. k6 (`load/drivers.ts`, `grafana/k6:2.3.0`) runs one virtual user per driver. Each records a fix
    every few seconds and sends its queue; failed requests are resent with the same sequence
    numbers and idempotency keys, as the driver app does.
-6. Halfway through, `docker kill --signal KILL` stops console A's instance. Console A loses its
+6. Halfway through, `docker compose kill --signal KILL` stops console A's instance. Console A loses its
    connection; requests in flight on that instance fail and are resent (nginx forwards failed
    location batches to the other instance, and k6 retries).
 7. `dispatch-sim verify` compares the database, where every acknowledged fix is stored, with the
@@ -56,7 +56,12 @@ node load/report.mjs load/results/<run> --docs [--publish-timings]
 ```
 
 The script builds the images, runs the test, prints a summary, exits non-zero on any of the
-failures above, and stops the stack (keep it with `--keep-stack`). Raw results stay in
+failures above, and stops the stack (keep it with `--keep-stack`). Container, network and image
+names follow the compose project, so a second copy can run beside a stack that is already up:
+set `COMPOSE_PROJECT_NAME` and move the host ports with `DISPATCH_HTTP_PORT`,
+`DISPATCH_POSTGRES_PORT` and `DISPATCH_REDIS_PORT`. Memory limits can be raised with `API_MEMORY`,
+`POSTGRES_MEMORY`, `K6_MEMORY` (512 MB by default) and `LISTENER_MEMORY` (256 MB). Runs of up to
+50 drivers have used the defaults; the sizing for 1,000 drivers is untested. Raw results stay in
 `load/results/<run>/` (not committed: the fleet file holds device tokens). CI runs the 20-driver
 version and keeps the results folder, without the fleet file, when the job fails.
 

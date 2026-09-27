@@ -80,13 +80,13 @@ function selectionFeatures(
   return { type: 'FeatureCollection', features };
 }
 
-/** Driver markers coloured by status, the selected delivery and its driver's straight line to go. */
 /**
  * The delivery and new-delivery panels cover the right-hand side of the map, so the zoom buttons
  * and the OpenStreetMap credit go on the left, where nothing covers them.
  */
 const CONSOLE_CONTROLS = { navigation: 'top-left', attribution: 'bottom-left' } as const;
 
+/** Driver markers coloured by status, the selected delivery and its driver's straight line to go. */
 export function ConsoleMap({
   drivers,
   selected,

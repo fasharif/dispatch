@@ -84,7 +84,8 @@ export class WebhookSender {
  * receiver cannot make the worker buffer a large reply. Returns up to SNIPPET_CHARS characters.
  */
 export async function readSnippet(response: Response): Promise<string> {
-  const body = response.body;
+  // Node's typings leave the chunk type open; fetch bodies are byte streams.
+  const body = response.body as ReadableStream<Uint8Array> | null;
   if (!body) return '';
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];

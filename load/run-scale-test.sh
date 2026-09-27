@@ -188,6 +188,16 @@ json() { node -e "const r = require('./$RESULTS/$1'); console.log($2)"; }
   fail "the console on $SURVIVOR lost its connection, so the run did not test that path"
 [[ "$VERIFY_EXIT" -eq 0 ]] ||
   fail "some acknowledged fixes never reached a console (see $RESULTS/verify-*.log)"
+# "Lost" is measured against what the database stored, so fixes the API refused or never
+# acknowledged would not count as lost: they fail the run here instead.
+[[ "$(json k6-summary.json r.fixesRefused)" -eq 0 ]] ||
+  fail "the API refused $(json k6-summary.json r.fixesRefused) fixes (conflict or rejected; see k6.log)"
+[[ "$(json k6-summary.json r.fixesUnacknowledged)" -eq 0 ]] ||
+  fail "$(json k6-summary.json r.fixesUnacknowledged) fixes were never acknowledged by the API"
+if [[ "$(json k6-summary.json r.batchesFailed)" -gt 0 ]]; then
+  log "Note: $(json k6-summary.json r.batchesFailed) batches failed six attempts in a row; their"
+  log "fixes were sent again with the next batch and acknowledged."
+fi
 if [[ "$(json k6-summary.json 'r.fixesDuplicate + r.batchRetries')" -eq 0 ]]; then
   log "Note: k6 counted no duplicate answers or retries, so no batch stored by $VICTIM had to be"
   log "replayed in this run. The end-to-end test two-instances.test.ts covers that path."

@@ -40,7 +40,9 @@ flowchart LR
 
 The run fails if any event is lost, if no fix was stored, if the kill did not make console A
 reconnect and resume, or if console B lost its connection: in the last two cases the run did not
-test what it claims to test. When no batch happened to be in flight on the dying instance (k6
+test what it claims to test. It also fails if the API refused a fix or never acknowledged one by
+the end of the run, as k6 counts them: a lost event is measured against what the database stored,
+so such fixes would otherwise not count. When no batch happened to be in flight on the dying instance (k6
 counts no duplicates or retries), the run says so; the end-to-end test `two-instances.test.ts`
 covers that path deterministically.
 
@@ -62,8 +64,10 @@ set `COMPOSE_PROJECT_NAME` and move the host ports with `DISPATCH_HTTP_PORT`,
 `DISPATCH_POSTGRES_PORT` and `DISPATCH_REDIS_PORT`. Memory limits can be raised with `API_MEMORY`,
 `POSTGRES_MEMORY`, `K6_MEMORY` (512 MB by default) and `LISTENER_MEMORY` (256 MB). Runs of up to
 50 drivers have used the defaults; the sizing for 1,000 drivers is untested. Raw results stay in
-`load/results/<run>/` (not committed: the fleet file holds device tokens). CI runs the 20-driver
-version and keeps the results folder, without the fleet file, when the job fails.
+`load/results/<run>/` (not committed: the fleet file holds device tokens); `--docs` adds the run's
+row below and writes the counts behind it, without tokens, ids or timings, to
+[`docs/scale-runs/<run>.json`](scale-runs/). CI runs the 20-driver version and keeps the results
+folder, without the fleet file, when the job fails.
 
 ## Results
 
@@ -72,14 +76,17 @@ on a development machine shared with other workloads are functional checks only:
 events, and their latencies are not published because other containers on the same machine
 distort them. The latency columns are filled by a run on a quiet machine with
 `--publish-timings`. "Replayed batches" counts k6's duplicate answers and retries: batches that
-were resent because the instance died while handling them.
+were resent because the instance died while handling them. "Refused / unacknowledged" counts
+fixes the API answered with a conflict or a rejection, and fixes still unanswered when k6
+stopped; both must be 0. Each run links to its counts. Run 20260926T033535Z was made in a fresh
+clone that was deleted afterwards, before the counts files existed, so only its row remains.
 
 <!-- results:start -->
 
-| Run              | Drivers | Duration | Fix interval | Instance killed          | Fixes stored | Received by console A | Received by console B | Lost (A / B) | Resumes (A) | Replayed batches | p95 latency, all fixes (A)  | p95 latency, live fixes (B) | Environment                                                            |
-| ---------------- | ------- | -------- | ------------ | ------------------------ | ------------ | --------------------- | --------------------- | ------------ | ----------- | ---------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------- |
-| 20260926T024932Z | 50      | 120 s    | 3 s          | api-2 (SIGKILL, mid-run) | 1999         | 1999                  | 1999                  | 0 / 0        | 1           | 0                | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit e647905 |
-| 20260926T033535Z | 20      | 60 s     | 3 s          | api-2 (SIGKILL, mid-run) | 389          | 389                   | 389                   | 0 / 0        | 1           | 0                | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit 5bd6e1d |
+| Run                                                  | Drivers | Duration | Fix interval | Instance killed          | Fixes stored | Received by console A | Received by console B | Lost (A / B) | Resumes (A) | Replayed batches | Refused / unacknowledged (k6) | p95 latency, all fixes (A)  | p95 latency, live fixes (B) | Environment                                                            |
+| ---------------------------------------------------- | ------- | -------- | ------------ | ------------------------ | ------------ | --------------------- | --------------------- | ------------ | ----------- | ---------------- | ----------------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| [20260926T024932Z](scale-runs/20260926T024932Z.json) | 50      | 120 s    | 3 s          | api-2 (SIGKILL, mid-run) | 1999         | 1999                  | 1999                  | 0 / 0        | 1           | 0                | 0 / 0                         | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit e647905 |
+| 20260926T033535Z                                     | 20      | 60 s     | 3 s          | api-2 (SIGKILL, mid-run) | 389          | 389                   | 389                   | 0 / 0        | 1           | 0                | not kept                      | pending (quiet-machine run) | pending (quiet-machine run) | MINGW64_NT-10.0-26200, Docker 29.8.0, 16 CPUs, 7.4 GiB; commit 5bd6e1d |
 
 <!-- results:end -->
 

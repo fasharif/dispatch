@@ -297,11 +297,14 @@ nginx; the server names the instance serving it, and that instance is killed wit
 through. Console B connects straight to the other instance and must stay connected. The run then
 compares every fix stored in the database with what each console received. It fails on any lost
 event, on an empty k6 summary, when no fix was stored, when console A did not reconnect and
-resume, or when console B lost its connection. It reports how many batches had to be replayed
+resume, when console B lost its connection, or when k6 saw a fix refused or never acknowledged
+(a lost event is counted against the database, which does not hold those). It reports how many batches had to be replayed
 (k6's duplicate answers and retries) and says when there were none, because only the end-to-end
 test forces that path. Latency is measured from the batch's `sentAt` to arrival at the console,
 on the same Docker host, and recorded in the run's folder; it is published in docs/scale-test.md
-only from a run on a quiet machine (`--publish-timings`).
+only from a run on a quiet machine (`--publish-timings`). Each published row links to a file in
+`docs/scale-runs/` with the counts behind it; the raw results are not committed, because the
+fleet file holds device tokens.
 
 **Consequences.** The published claim is a count for both consoles, reproducible by anyone with
 Docker. Whether a batch is in flight at the moment of the kill is chance at small scale, so the

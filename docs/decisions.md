@@ -117,6 +117,30 @@ storing and publishing) is published now, and a duplicate that is already on the
 broadcast again under its original stream id, because the first instance may have died after
 saving the stream id but before the Redis adapter passed the broadcast on.
 
+The failover case, with a console connected to the instance that survives:
+
+```mermaid
+sequenceDiagram
+  participant P as Phone (SQLite queue)
+  participant N as nginx
+  participant A as api-2 (killed)
+  participant B as api-1 (survives)
+  participant R as Redis (stream, adapter)
+  participant C as Console on api-1
+  P->>N: batch, seq 41-42
+  N->>A: forward
+  A->>A: INSERT ... ON CONFLICT DO NOTHING
+  A->>R: XADD, stream id saved with each fix
+  Note over A: SIGKILL before the broadcast leaves
+  N-->>P: no answer (error or timeout)
+  P->>N: the same batch: same seq, same keys
+  N->>B: forward
+  B->>B: both fixes are duplicates, already on the stream
+  B->>R: broadcast again under the original stream ids
+  R->>C: fixes 41-42 (repeats dropped by deviceId:seq)
+  B-->>P: 200, duplicate: the phone removes them from its queue
+```
+
 **Consequences.** A 2xx means "stored and on the live stream". Offline replays after hours are
 safe, and the scale test can count lost events exactly. The cost is one extra read per batch to
 classify replays, and a repeated broadcast when a device replays a batch whose first broadcast

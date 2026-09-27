@@ -4,9 +4,15 @@ Live delivery tracking: dispatcher console, offline-first driver app, signed cus
 
 [![CI](https://github.com/fasharif/dispatch/actions/workflows/ci.yml/badge.svg)](https://github.com/fasharif/dispatch/actions/workflows/ci.yml)
 
-A portfolio project. The orders come from [TopFlow Hub](https://github.com/fasharif/topflow),
-another portfolio project, whose receiving side marks them delivered (ADR-024 in its
-`docs/DECISIONS.md`). Nothing here serves a real company.
+A portfolio project. Each delivery carries an order number from
+[TopFlow Hub](https://github.com/fasharif/topflow), another portfolio project, which the dispatcher
+enters with the delivery; TopFlow Hub's webhook receiver then marks that order delivered (ADR-024
+in its [`docs/DECISIONS.md`](https://github.com/fasharif/topflow/blob/develop/docs/DECISIONS.md)).
+Nothing here serves a real company.
+
+**Result so far:** in the scale test, with the API instance serving one of two consoles killed
+mid-run, none of the 1,999 fixes stored by 50 simulated drivers was lost on either console
+([docs/scale-test.md](docs/scale-test.md)). Latency figures are pending a run on a quiet machine.
 
 ![The dispatcher console during the demo: drivers move across Dubai and a delivery on its way is selected (40 seconds, played five times faster)](docs/screenshots/demo.gif)
 
@@ -28,12 +34,16 @@ signal in car parks and tunnels, so anything that relies on a constant connectio
   After a reconnect the console catches up on the positions it missed and reloads drivers and
   deliveries.
 - **Nearest free driver.** New deliveries are assigned to the closest available driver with a
-  recent fix (PostGIS KNN on a GiST index, safe under concurrent assignment). The dispatcher can
-  see the candidates with distances and ETAs and override the choice before pickup.
+  recent fix (PostGIS KNN on a GiST index, safe under concurrent assignment, looking further out
+  when the nearest drivers are taken). The dispatcher can see the candidates with distances and
+  ETAs and override the choice before pickup.
 - **Driver locations every few seconds**, from the driver app's background location task, sent
-  in batches: every 5 seconds on Android whether or not the driver moves; on iOS as positions
-  arrive, at most one every 4 seconds; and, while the app is open, a heartbeat after 30 seconds
-  without a position, so a driver waiting at the warehouse stays assignable.
+  in batches. The app asks expo-location for a position every 5 seconds whether or not the
+  driver moves (Android honours the interval; iOS reports as positions arrive and the queue keeps
+  at most one every 4 seconds), and while the app is open on shift it asks again after 30 seconds
+  without one, so a driver waiting at the warehouse stays assignable. These are the configured
+  values and expo-location's documented behaviour; the app has not run on a phone (see
+  limitations).
 - **Offline replay without duplicates.** Fixes wait in SQLite on the phone with a per-device
   sequence number and an idempotency key, and are replayed after any outage; the API stores each
   one once and says per fix whether it was accepted, a duplicate or a conflict. A replayed fix is
@@ -42,7 +52,14 @@ signal in car parks and tunnels, so anything that relies on a constant connectio
   The page shows the driver's position and ETA while the parcel is on its way, in English or
   Arabic (right to left, Arabic map labels).
 - **Proof of delivery.** Photo, signature and the phone's position, which must be within a
-  geofence around the drop-off point (`ST_DWithin`, 150 m widened by the fix's accuracy).
+  geofence around the drop-off point (`ST_DWithin`, 150 m widened by the fix's accuracy). The
+  phone's capture time must fall between the pickup and the server's time, give or take two
+  minutes, because the order system records it as the delivery time.
+- **Lost phones and drivers who leave.** Each phone gets its own device token at enrolment. From
+  the Drivers tab a dispatcher can revoke a lost phone (its token is refused from the next
+  request), issue a code for a replacement (enrolling it revokes the old phone) and deactivate a
+  driver who has left. Invalid device tokens are limited per client address before any database
+  lookup.
 - **Webhooks to the order system** from a transactional outbox: HMAC-signed, retried with
   exponential backoff, idempotent by event id. TopFlow Hub's receiving side marks orders
   delivered through its own state machine. Both repositories test the same recorded, signed
@@ -105,7 +122,7 @@ transaction; the worker turns outbox rows into BullMQ jobs that sign and send th
 | Database                  | PostgreSQL 18 with PostGIS 3.6                                                   | KNN (`<->`) on GiST indexes, `ST_DWithin` on the ellipsoid, row locks for assignment                                                                                                                                                                                    |
 | Realtime                  | Socket.IO 4, WebSocket transport only, `@socket.io/redis-adapter`, Redis stream  | Fan-out across instances without sticky sessions, and resume after a reconnect ([ADR-006](docs/decisions.md#adr-006--live-updates-socketio-over-websocket-only-redis-adapter-redis-stream-for-resume))                                                                  |
 | Jobs                      | BullMQ on Redis 8                                                                | Retries with backoff and a job id per event for the outbox relay ([ADR-007](docs/decisions.md#adr-007--webhooks-through-a-transactional-outbox-relayed-by-bullmq))                                                                                                      |
-| Console and tracking page | Next.js 16, React 19, MapLibre GL 6, Protomaps PMTiles                           | A street map from one static file, no tile server or API key ([ADR-013](docs/decisions.md#adr-013--basemap-from-a-protomaps-pmtiles-extract-with-a-stated-fallback))                                                                                                    |
+| Console and tracking page | Next.js 16, React 19, MapLibre GL 6, Protomaps PMTiles                           | A street map from one static file, no tile server or API key; map fonts and symbols load from Protomaps' GitHub Pages site ([ADR-013](docs/decisions.md#adr-013--basemap-from-a-protomaps-pmtiles-extract-with-a-stated-fallback))                                      |
 | Driver app                | Expo 57 (React Native 0.86), `expo-location`, `expo-task-manager`, `expo-sqlite` | Background location and a durable queue from one TypeScript codebase ([ADR-012](docs/decisions.md#adr-012--the-driver-apps-queue-lives-in-sqlite-behind-a-small-interface))                                                                                             |
 | Contracts                 | zod 4 in `packages/shared`                                                       | One schema for validation and types across all apps ([ADR-001](docs/decisions.md#adr-001--one-repository-npm-workspaces-shared-zod-contracts))                                                                                                                          |
 | Routing                   | OSRM (optional)                                                                  | Road-network ETAs when data is prepared; a stated fallback otherwise ([ADR-008](docs/decisions.md#adr-008--eta-from-osrm-when-configured-otherwise-a-stated-straight-line-estimate))                                                                                    |
@@ -118,7 +135,7 @@ Needs Docker and Node.js 24.
 
 ```bash
 git clone https://github.com/fasharif/dispatch.git && cd dispatch
-scripts/fetch-basemap.sh      # optional: Dubai basemap, about 13 MB; without it the map shows demo tiles
+scripts/fetch-basemap.sh      # Dubai street map, about 13 MB (runs go-pmtiles in Docker)
 docker compose --profile stack up -d --build --wait
 npm ci && npm run build -w @dispatch/shared -w @dispatch/simulator
 npm run start -w @dispatch/simulator -- demo --api http://localhost:57080
@@ -130,8 +147,11 @@ Open <http://localhost:57080> and sign in as `dispatcher@dispatch.local` with th
 seconds and drives each one through pickup and proof of delivery. Enrolment is rate limited, so
 the first drivers can take a minute to appear. If the demo stops with an error (for example a
 timeout while the stack is still warming up), run the last command again: it reuses the drivers
-it created and carries on with their open deliveries. `docker compose --profile stack down -v`
-stops everything. The stack's ports are bound to 127.0.0.1 only.
+it created, and their simulated phones from the fleet file it writes
+(`tools/simulator/fleet.json`, which holds device tokens and is ignored by git), and carries on
+with their open deliveries. `docker compose --profile stack down -v` stops everything. The
+stack's ports are bound to 127.0.0.1 only. Without the street map from step 2 the console still
+works, but the map shows MapLibre's demo tiles: country outlines and no streets.
 
 For development with hot reload: `docker compose up -d` (PostgreSQL and Redis only), copy
 `apps/api/.env.example` to `apps/api/.env` and `apps/web/.env.example` to `apps/web/.env.local`,
@@ -159,6 +179,8 @@ one is missing or malformed. The full list with defaults is in
 | `WEBHOOK_URL`, `WEBHOOK_SECRET`                      | empty                                     | Where signed events go; empty keeps them in the outbox             |
 | `OSRM_URL`                                           | empty                                     | OSRM base URL for road ETAs; empty uses the straight-line estimate |
 | `AUTH_THROTTLE_LIMIT`, `THROTTLE_LIMIT`              | 10, 600 per minute                        | Rate limits for sign-in and enrolment, and for everything else     |
+| `AUTH_FAILURE_LIMIT`                                 | 30 per minute                             | Invalid device tokens per client address before it is refused      |
+| `MAX_CLOCK_SKEW_S`                                   | 120                                       | How far a phone's clock may be off (fixes, proof capture time)     |
 
 The compose stack runs with `NODE_ENV=production` but sets `ALLOW_INSECURE_LOCAL_SECRETS=true` by
 default, so it starts with the example secrets on your own machine; the API then logs a warning
@@ -166,7 +188,14 @@ naming them. Set your own secrets and `ALLOW_INSECURE_LOCAL_SECRETS=false` befor
 reach the stack.
 
 The web app reads `NEXT_PUBLIC_API_URL` (empty means same origin, as behind nginx) and
-`NEXT_PUBLIC_BASEMAP_URL` at build time ([`apps/web/.env.example`](apps/web/.env.example)).
+`NEXT_PUBLIC_BASEMAP_URL` at build time ([`apps/web/.env.example`](apps/web/.env.example)), and
+builds its Content-Security-Policy from them.
+
+The compose stack's host ports are 57080 (nginx), 57432 (PostgreSQL) and 57379 (Redis). To run a
+second stack on the same machine, give it another project name and ports, for example
+`COMPOSE_PROJECT_NAME=dispatch-b DISPATCH_HTTP_PORT=57180 DISPATCH_POSTGRES_PORT=57532
+DISPATCH_REDIS_PORT=57479 PUBLIC_WEB_URL=http://localhost:57180`; container, network, volume and
+image names follow the project name.
 
 Road ETAs: `scripts/prepare-osrm.sh` prepares the Geofabrik GCC extract (a 254 MB download for
 the 25 September 2026 file; not processed on the development machine, see limitations) or, with
@@ -176,20 +205,20 @@ stack).
 
 ## Tests
 
-| Command                                                                          | What it covers                                                                                                                                                                                                                                                                | Needs                                    |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `npm test`                                                                       | Unit tests in every workspace: contracts, geo helpers, state machine, signatures, tokens, config, the webhook contract (recorded requests), the driver app's offline queue, replay and location policy, the console's state and live feed, i18n, demo seeding                 | Nothing                                  |
-| `npm run test:integration`                                                       | API against PostGIS and Redis: location ingestion and replays, KNN assignment under concurrency, ending a shift during an assignment, proof of delivery (geofence, ownership, concurrent retries), the outbox relay and webhook retries                                       | `docker compose up -d`                   |
-| `npm run test:e2e`                                                               | The core flow over HTTP and WebSockets: create, assign, track, pick up, deliver with proof, webhook sent; sessions ending on time; two API instances: fan-out, a replayed fix broadcast again after its first broadcast was lost, and no lost fix when one instance goes away | `docker compose up -d`                   |
-| `npm run test:browser -w @dispatch/web`                                          | Playwright: sign-in, live map, adding a driver, creating a delivery on the map, deliveries changed while the console was disconnected, tracking page in English and Arabic                                                                                                    | API and web app running, database seeded |
-| `npm run bundle -w @dispatch/driver`                                             | Metro bundles the driver app for Android                                                                                                                                                                                                                                      | Nothing                                  |
-| `npm run test:scale`                                                             | Scale test with a console on each instance ([docs/scale-test.md](docs/scale-test.md))                                                                                                                                                                                         | Docker                                   |
-| `TEST_OSRM_URL=http://localhost:57500 npm run test:integration -w @dispatch/api` | ETAs against a real OSRM server                                                                                                                                                                                                                                               | The `osrm` compose profile               |
+| Command                                                                          | What it covers                                                                                                                                                                                                                                                                                                                                | Needs                                    |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `npm test`                                                                       | Unit tests in every workspace: contracts, geo helpers, state machine, signatures, tokens, config, the webhook contract (recorded requests) and the capped reply read, the driver app's offline queue, replay and location policy, the console's state, live feed and Content-Security-Policy, i18n, demo seeding                              | Nothing                                  |
+| `npm run test:integration`                                                       | API against PostGIS and Redis: location ingestion and replays, KNN assignment under concurrency and past locked drivers, ending a shift during an assignment, proof of delivery (geofence, ownership, capture time, concurrent retries), revoking phones and deactivating drivers, invalid-token limits, the outbox relay and webhook retries | `docker compose up -d`                   |
+| `npm run test:e2e`                                                               | The core flow over HTTP and WebSockets: create, assign, track, pick up, deliver with proof, webhooks sent in the recorded contract's shape; sessions ending on time; two API instances: fan-out, a replayed fix broadcast again after its first broadcast was lost, and no lost fix when one instance goes away                               | `docker compose up -d`                   |
+| `npm run test:browser -w @dispatch/web`                                          | Playwright: sign-in, live map, adding a driver and revoking its phone, deactivating a driver, creating a delivery on the map, deliveries changed while the console was disconnected, tracking page in English and Arabic; any Content-Security-Policy violation fails a test                                                                  | API and web app running, database seeded |
+| `npm run bundle -w @dispatch/driver`                                             | Metro bundles the driver app for Android                                                                                                                                                                                                                                                                                                      | Nothing                                  |
+| `npm run test:scale`                                                             | Scale test with a console on each instance ([docs/scale-test.md](docs/scale-test.md))                                                                                                                                                                                                                                                         | Docker                                   |
+| `TEST_OSRM_URL=http://localhost:57500 npm run test:integration -w @dispatch/api` | ETAs against a real OSRM server                                                                                                                                                                                                                                                                                                               | The `osrm` compose profile               |
 
 `npm run lint`, `npm run typecheck` and `npm run format:check` run the same checks as CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), which also runs the integration,
-end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle, and a
-20-driver scale smoke test.
+end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle, a
+20-driver scale smoke test, and shellcheck and actionlint on the scripts and the workflow.
 
 ## Folder structure
 
@@ -237,13 +266,19 @@ tokens, and the rest.
 - Proof-of-delivery photos are stored on a local volume; several API hosts would need shared or
   object storage.
 - A tracking link cannot be revoked before it expires, except by rotating the secret.
+- Revoking a phone does not take away a delivery the driver already carries; the dispatcher
+  reassigns or cancels it. A driver with a delivery in hand cannot be deactivated until then.
+- The map tiles are served locally, but the map's fonts and symbols load from
+  `protomaps.github.io` at runtime, so browsers contact GitHub Pages (ADR-013).
 - One seeded dispatcher account; no user management, roles or audit views.
 - GPS spoofing is not detected.
-- Roadmap: road-time assignment, SMS or WhatsApp delivery of tracking links, object storage for
-  photos, store builds of the driver app, the 1,000-driver timing run.
+- Roadmap: road-time assignment, importing orders from TopFlow Hub instead of typing their
+  numbers, SMS or WhatsApp delivery of tracking links, object storage for photos, store builds of
+  the driver app, the 1,000-driver timing run.
 
 ## Licence
 
 [MIT](LICENSE). Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors,
 available under the Open Database Licence; basemap by
-[Protomaps](https://github.com/protomaps/basemaps).
+[Protomaps](https://github.com/protomaps/basemaps). Map labels use Noto Sans glyphs from the
+Protomaps assets, under the SIL Open Font Licence 1.1.

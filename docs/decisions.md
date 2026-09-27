@@ -83,16 +83,20 @@ failed under concurrency with "attempted to lock invisible tuple".
 **Decision.** Two steps inside the assignment transaction. First, a KNN query on a partial GiST
 index over available drivers (`ORDER BY location <-> pickup`) returns up to ten candidates whose
 last fix is newer than `DRIVER_STALE_AFTER_S`. Then each candidate, nearest first, is locked by
-primary key with `FOR UPDATE SKIP LOCKED` and checked again for being free. A unique partial
-index allows one active delivery per driver as the final guard. The dispatcher can override:
-`GET /v1/deliveries/:id/candidates` lists nearby drivers (stale ones flagged) and
-`POST /v1/deliveries/:id/assign` with a `driverId` locks that driver instead. When nobody is
-free, the delivery stays `pending`.
+primary key with `FOR UPDATE SKIP LOCKED` and checked again for being free. When all ten are
+taken by concurrent assignments or have turned busy, the next ten beyond the ones already tried
+are read, until no free driver with a fresh fix is left (the first version stopped after ten;
+found in review). A unique partial index allows one active delivery per driver as the final
+guard. The dispatcher can override: `GET /v1/deliveries/:id/candidates` lists nearby drivers
+(stale ones flagged) and `POST /v1/deliveries/:id/assign` with a `driverId` locks that driver
+instead. When nobody is free, the delivery stays `pending`.
 
 **Consequences.** Assignment is correct under concurrency (an integration test assigns in
-parallel) and uses the index. "Nearest" is straight-line distance to the pickup, not travel
-time; with OSRM configured, the candidate list shows road ETAs, but the automatic choice still
-uses distance.
+parallel, another locks the ten nearest drivers and expects the eleventh) and uses the index:
+`EXPLAIN` on 20,000 drivers shows an index scan on the partial GiST index ordered by distance,
+with the drivers already tried as a filter. "Nearest" is straight-line distance to the pickup,
+not travel time; with OSRM configured, the candidate list shows road ETAs, but the automatic
+choice still uses distance.
 
 ## ADR-005 — Driver fixes are sent at least once and stored once
 
@@ -216,7 +220,10 @@ Before anything is written, a cheap read checks that the delivery exists, belong
 device and can still be completed; multer stops reading an upload at `MAX_PHOTO_BYTES`. An
 optional `Idempotency-Key` header makes a retry answer like the first attempt; the key is checked
 again after the row lock, so two concurrent retries get the same answer, and a malformed key is
-refused with 400.
+refused with 400. The capture time comes from the phone's clock and becomes the order's delivery
+time in the order system, so it must fall between the pickup and the server's time, allowing
+`MAX_CLOCK_SKEW_S` either way; otherwise the completion is refused with 422 `CLOCK_SKEW` before
+the photo is stored.
 
 **Consequences.** A driver cannot complete from across town. A spoofed GPS position still passes;
 detecting that is out of scope. Photo storage is a local volume, so multiple API hosts need a
@@ -236,11 +243,26 @@ for other scripts to find. Devices enrol once with a one-time code a dispatcher 
 receive an opaque `dvc_…` token; only its SHA-256 is stored. Login and enrolment are rate limited
 per address (`AUTH_THROTTLE_LIMIT`), everything else per signed-in dispatcher or device, or per
 address for anonymous calls (`THROTTLE_LIMIT`), with counters in Redis so the limits hold across
-instances. In production the API refuses to start with the
-example secrets.
+instances. That limit runs after authentication, so invalid device tokens are limited separately,
+before the lookup: a token not shaped like one is refused without a query, and an address with
+more than `AUTH_FAILURE_LIMIT` failures in a minute is refused with 429 for a minute. Behind nginx
+the address comes from `X-Forwarded-For` (`TRUST_PROXY`). In production the API refuses to start
+with the example secrets, unless `ALLOW_INSECURE_LOCAL_SECRETS` is set, as the compose stack does
+for a machine of one's own; the API then logs a warning naming them.
+
+A driver has one working phone. Dispatchers can list a driver's phones, revoke one (its token is
+refused from the next request, and a driver left without a working phone goes off shift unless a
+delivery is in hand), and deactivate a driver who has left: every phone is revoked, unused
+enrolment codes stop working, and a database constraint keeps the driver off shift. Enrolling a
+new phone revokes the earlier ones. The first version checked `revoked_at` but had no way to set
+it, so a lost phone kept its access (found in review).
 
 **Consequences.** No CSRF surface for the console, since there are no cookies. The price is
-signing in again after a reload, which suits a console that stays open all shift.
+signing in again after a reload, which suits a console that stays open all shift. Because the
+session token lives in the page's memory, the pages send a Content-Security-Policy with a fresh
+nonce per response (`apps/web/proxy.ts`): scripts run only with that nonce, connections go only to
+the page's origin, the API and the map asset hosts, and nothing may frame the page. Pages are
+therefore rendered per request rather than at build time.
 
 ## ADR-012 — The driver app's queue lives in SQLite behind a small interface
 
@@ -278,11 +300,17 @@ third-party tile service that tracks visitors.
 zoom 0–14, about 13 MB) through HTTP range requests. `scripts/fetch-basemap.sh` extracts it from
 a daily Protomaps planet build; it is not committed. The compose stack serves it from nginx. When
 the file is missing the maps fall back to MapLibre's demo tiles (country outlines) and say so.
-Glyphs and sprites come from the Protomaps assets repository; Arabic labels use MapLibre's RTL
-text plugin, served locally.
+Glyphs and sprites come from the Protomaps assets site (`protomaps.github.io`) at runtime;
+Arabic labels use MapLibre's RTL text plugin, served locally. The credit ("Protomaps ©
+OpenStreetMap contributors") is always shown in full, not as MapLibre's compact button: on the
+console it sits at the bottom left with the zoom buttons at the top left, because the delivery
+panels cover the right-hand side of the map, where they had hidden the credit (found in review).
 
-**Consequences.** No tile server and no key. The extract ages; rerunning the script refreshes it.
-Map data is © OpenStreetMap contributors under the ODbL, credited on every map.
+**Consequences.** No tile server and no key. The tiles never leave the stack, but every page that
+shows the Protomaps map fetches fonts and symbols from GitHub Pages, so that host sees visitors'
+addresses; vendoring the needed glyph ranges and sprites would remove it. The extract ages;
+rerunning the script refreshes it. Map data is © OpenStreetMap contributors under the ODbL,
+credited visibly on every map; the Noto Sans glyphs are under the SIL Open Font Licence.
 
 ## ADR-014 — The scale test counts lost events against the database
 
@@ -333,9 +361,10 @@ processes), k6 and the simulator containers were affected.
 service, which nginx then serves. The scale-test harness containers run as root, since they only
 read the results folder and talk to the stack.
 
-**Consequences.** The stack behaves the same on Linux, macOS and Windows. Running harness
-containers as root is acceptable for a local test harness; the application images themselves
-run as an unprivileged user.
+**Consequences.** Nothing in the stack depends on how the host shares files with containers.
+It has been run on Docker Desktop for Windows; the CI workflow runs it on Ubuntu, but has not run
+on GitHub yet, and macOS is untested. Running harness containers as root is acceptable for a
+local test harness; the application images themselves run as an unprivileged user.
 
 ## ADR-017 — The console reloads drivers and deliveries on every connection
 

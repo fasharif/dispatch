@@ -314,7 +314,7 @@ const summary = `# Scale test ${run.run}
 | | |
 | --- | --- |
 | Drivers (k6 virtual users) | ${run.drivers}, one fix every ${run.intervalSeconds} s for ${run.durationSeconds} s |
-| API instances | 2 behind nginx, Socket.IO Redis adapter${run.databasePoolMax ? `, ${run.databasePoolMax} database connections each` : ''}; ${killed} killed with SIGKILL at ${run.killedAt}${run.loadStartedAt ? ` (first fix stored at ${run.loadStartedAt})` : ''} |
+| API instances | 2 behind nginx, Socket.IO Redis adapter${run.databasePoolMax ? `, ${run.databasePoolMax} database connections each` : ''}; ${killed} killed with SIGKILL at ${run.killedAt}${run.loadStartedAt ? ` (first fix stored at ${run.loadStartedAt})` : ''}${run.killedInstanceStartedAgainAt ? `; **${killed} was started again at ${run.killedInstanceStartedAgainAt}, not by the harness**` : ''} |
 | Fixes recorded by k6 | ${k6.fixesRecorded} (accepted ${k6.fixesAccepted}, duplicate ${k6.fixesDuplicate}, refused ${k6.fixesRefused}, unacknowledged ${k6.fixesUnacknowledged}) |
 | Batch retries (k6) | ${k6.batchRetries}; batches that failed six attempts ${k6.batchesFailed}; replayed batches in total: ${replayed} |
 | HTTP requests (k6) | ${k6.httpRequests}, failed ${(k6.httpFailedRate * 100).toFixed(3)} % |
@@ -361,6 +361,9 @@ if (flags.includes('--docs')) {
     ...(run.loadStartedAt && { loadStartedAt: run.loadStartedAt }),
     killedAt: run.killedAt,
     ...(run.databasePoolMax && { databasePoolMaxPerInstance: Number(run.databasePoolMax) }),
+    ...(run.killedInstanceStartedAgainAt !== undefined && {
+      killedInstanceStartedAgainAt: run.killedInstanceStartedAgainAt || null,
+    }),
     ...(run.k6EndedAt && { k6EndedAt: run.k6EndedAt }),
     k6: {
       fixesRecorded: k6.fixesRecorded,

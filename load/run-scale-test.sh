@@ -57,6 +57,7 @@ K6_MEMORY="${K6_MEMORY:-512m}"
 LISTENER_MEMORY="${LISTENER_MEMORY:-256m}"
 STATS_EVERY="${STATS_EVERY:-5}"
 STATS_PID=""
+EVENTS_PID=""
 export MSYS_NO_PATHCONV=1
 mkdir -p "$RESULTS"
 
@@ -69,7 +70,11 @@ fail() {
 cleanup() {
   local code=$?
   stop_sampling
-  # PostgreSQL logs its checkpoints and nginx its upstream failures: both explain slow periods.
+  if [[ -n "$EVENTS_PID" ]]; then
+    kill "$EVENTS_PID" 2>/dev/null || true
+  fi
+  # PostgreSQL logs its checkpoints and autovacuum runs, and nginx its upstream failures: they
+  # explain slow periods.
   for service in postgres nginx; do
     docker compose --profile stack logs --no-color --timestamps "$service" \
       > "$RESULTS/$service.log" 2>&1 || true
@@ -110,6 +115,11 @@ docker build -q -f apps/api/Dockerfile --target tools -t "$TOOLS_IMAGE" . >/dev/
 # Enrolment is rate-limited per address; the whole simulated fleet enrols from one container.
 AUTH_THROTTLE_LIMIT=100000 docker compose --profile stack up -d --build --wait \
   postgres redis migrate api-1 api-2 worker nginx >/dev/null
+# Every start, stop and kill of the stack's containers from now on, whoever causes it.
+docker events --filter "label=com.docker.compose.project=$PROJECT" --filter type=container \
+  --filter event=start --filter event=die --filter event=kill --filter event=stop \
+  --filter event=restart --filter event=oom --format '{{json .}}' > "$RESULTS/events.jsonl" &
+EVENTS_PID=$!
 
 # The harness containers run as root: they share the results folder, where the fleet file (device
 # tokens) is readable by its owner only, and non-root users cannot read bind mounts on every host.
@@ -193,6 +203,15 @@ docker compose --profile stack kill --signal KILL "$VICTIM" >/dev/null 2>&1
 
 docker wait "$K6_CONTAINER" >/dev/null
 K6_ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# Nothing in this script starts the killed instance again. If something else did, the rest of the
+# run was not served by one instance alone: record when (events.jsonl may say more).
+VICTIM_STARTED_AGAIN_AT=""
+victim_started="$(docker inspect -f '{{.State.StartedAt}}' \
+  "$(docker compose --profile stack ps -a -q "$VICTIM")" 2>/dev/null || true)"
+if [[ "$victim_started" > "$KILLED_AT" ]]; then
+  VICTIM_STARTED_AGAIN_AT="$victim_started"
+  log "Note: $VICTIM was started again at $victim_started, before k6 finished"
+fi
 docker logs "$K6_CONTAINER" > "$RESULTS/k6.log" 2>&1 || true
 grep '^{' "$RESULTS/k6.log" | tail -n 1 > "$RESULTS/k6-summary.json" || true
 [[ -s "$RESULTS/k6-summary.json" ]] || fail "k6 produced no summary (see $RESULTS/k6.log)"
@@ -229,6 +248,7 @@ cat > "$RESULTS/run.json" <<JSON
   "killedInstance": "$VICTIM",
   "survivingInstance": "$SURVIVOR",
   "killedAt": "$KILLED_AT",
+  "killedInstanceStartedAgainAt": "$VICTIM_STARTED_AGAIN_AT",
   "k6StartedAt": "$K6_STARTED_AT",
   "loadStartedAt": "$LOAD_STARTED_AT",
   "k6EndedAt": "$K6_ENDED_AT",

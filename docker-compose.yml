@@ -63,6 +63,9 @@ x-api-service: &api-service
 services:
   postgres:
     image: postgis/postgis:18-3.6-alpine
+    # Log every autovacuum run (checkpoints are logged by default), so a slow period in a scale
+    # run can be matched with database maintenance in its postgres.log.
+    command: ['postgres', '-c', 'log_autovacuum_min_duration=0']
     environment:
       POSTGRES_USER: dispatch
       POSTGRES_PASSWORD: dispatch

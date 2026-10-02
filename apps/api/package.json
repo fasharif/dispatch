@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "12.1.0",
-    "@swc/core": "1.16.2",
+    "@swc/core": "1.16.12",
     "@types/express": "5.0.6",
     "@types/multer": "2.2.0",
     "@types/pg": "8.23.1",

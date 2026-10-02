@@ -61,6 +61,7 @@ const retries = new Counter('batch_retries');
 const failedBatches = new Counter('batches_failed');
 
 // Module state is per virtual user: each VU runs in its own JavaScript runtime.
+let started = false;
 let seq = 0;
 let pending: Point[] = [];
 let position: { lat: number; lng: number; heading: number } | null = null;
@@ -112,6 +113,12 @@ function flush(driver: FleetDriver): void {
 export default function (): void {
   const driver = fleet[(exec.vu.idInTest - 1) % fleet.length];
   if (!driver) return;
+  if (!started) {
+    // Real phones are not in step. Without a random start, every virtual user would send at the
+    // same moment and the API would see one burst of N requests every interval.
+    started = true;
+    sleep(Math.random() * INTERVAL_S);
+  }
   const { lat, lng } = move();
   pending.push({
     seq,

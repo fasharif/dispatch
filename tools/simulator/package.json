@@ -1,0 +1,27 @@
+{
+  "name": "@dispatch/simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulates drivers moving around Dubai, a dispatcher listener that measures latency and lost events, and a demo that runs deliveries end to end.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "dispatch-sim": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dispatch/shared": "*",
+    "pg": "8.23.0",
+    "socket.io-client": "4.8.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "vitest": "5.0.2"
+  }
+}

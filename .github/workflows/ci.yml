@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Format, lint, types, unit tests, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      # The other workspaces import @dispatch/shared from its build output.
+      - run: npm run build -w @dispatch/shared
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  scripts:
+    name: Shell scripts and workflow (shellcheck, actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned images, so the runner's preinstalled versions do not decide the result.
+      - run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 load/*.sh scripts/*.sh
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+  integration:
+    name: Integration and end-to-end tests (PostGIS, Redis)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6-alpine
+        env:
+          POSTGRES_USER: dispatch
+          POSTGRES_PASSWORD: dispatch
+          POSTGRES_DB: dispatch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:8.8.3-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      # Each test project creates its own database (dispatch_test_integration, dispatch_test_e2e).
+      TEST_DATABASE_URL: postgresql://dispatch:dispatch@localhost:5432/dispatch_test
+      TEST_REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @dispatch/shared
+      - run: npm run test:integration
+      - run: npm run test:e2e
+
+  browser:
+    name: Browser tests (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6-alpine
+        env:
+          POSTGRES_USER: dispatch
+          POSTGRES_PASSWORD: dispatch
+          POSTGRES_DB: dispatch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:8.8.3-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      # A throwaway API for this job only; these values are not secrets. NODE_ENV stays unset:
+      # the API then runs as development, and `next build` needs its own production default.
+      PORT: '57100'
+      PROCESS_ROLE: all
+      DATABASE_URL: postgresql://dispatch:dispatch@localhost:5432/dispatch
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-dispatcher-session-secret-0000000000000
+      TRACKING_TOKEN_SECRET: ci-only-tracking-link-secret-000000000000000
+      PUBLIC_WEB_URL: http://localhost:57300
+      CORS_ORIGINS: http://localhost:57300
+      NEXT_PUBLIC_API_URL: http://localhost:57100
+      WEB_URL: http://localhost:57300
+      API_URL: http://localhost:57100
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @dispatch/shared -w @dispatch/api -w @dispatch/web
+      - run: npm run db:migrate && npm run db:seed
+      - name: Start the API and the web console
+        run: |
+          nohup npm run start -w @dispatch/api > "$RUNNER_TEMP/api.log" 2>&1 &
+          nohup npm run start -w @dispatch/web > "$RUNNER_TEMP/web.log" 2>&1 &
+          for url in http://localhost:57100/health/ready http://localhost:57300/; do
+            for _ in $(seq 1 60); do
+              if curl -sf -o /dev/null "$url"; then break; fi
+              sleep 1
+            done
+            curl -sf -o /dev/null "$url"
+          done
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run test:browser -w @dispatch/web
+      - name: Server logs
+        if: failure()
+        run: cat "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
+  driver:
+    name: Driver app bundle (Metro)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @dispatch/shared
+      # Bundles the Android JavaScript the way a release build would, without a device.
+      - run: npm run bundle -w @dispatch/driver
+
+  scale-smoke:
+    name: Scale smoke test (two instances, one killed)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # A small functional run: fails if any acknowledged fix never reached either console, or if
+      # the kill did not test failover. Runner timings are not published (docs/scale-test.md).
+      - run: bash load/run-scale-test.sh --drivers 20 --duration 60
+      # The results folder and the services' logs, without the fleet file (device tokens).
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: scale-test-results
+          path: |
+            load/results/
+            !load/results/**/fleet.json
+          retention-days: 7

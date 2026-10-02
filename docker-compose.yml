@@ -1,0 +1,185 @@
+# Local infrastructure and the full stack.
+#
+#   docker compose up -d                        PostgreSQL/PostGIS and Redis (development, tests)
+#   docker compose --profile stack up -d --build
+#                                               + migrations, a dispatcher account, two API
+#                                               instances, a worker, the web console and nginx:
+#                                               http://localhost:57080
+#   docker compose --profile osrm up -d osrm    OSRM for road-network ETAs (prepare the data first
+#                                               with scripts/prepare-osrm.sh)
+#
+# The stack is for one machine: published ports are bound to 127.0.0.1 only, because the database
+# password, the demo password and the example secrets below are public. Every container has a
+# memory limit.
+#
+# Two stacks can share a Docker host: give the second one its own project name and ports, e.g.
+#   COMPOSE_PROJECT_NAME=dispatch-b DISPATCH_HTTP_PORT=57180 DISPATCH_POSTGRES_PORT=57532 \
+#   DISPATCH_REDIS_PORT=57479 PUBLIC_WEB_URL=http://localhost:57180 docker compose ...
+# Container, network, volume and image names all follow the project name; nothing is fixed.
+name: dispatch
+
+x-api-env: &api-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://dispatch:dispatch@postgres:5432/dispatch
+  # Each API instance must carry the whole fleet when the other one dies, so each gets the
+  # connections both have together (the API's own default is 10). This is headroom, not a measured
+  # need: a 1,000-driver run with 10 showed no difference after the kill (docs/scale-test.md).
+  # 2 × 20 plus the worker stays well under PostgreSQL's 100.
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+  REDIS_URL: redis://redis:6379
+  # Example secrets for a stack on your own machine. NODE_ENV=production normally refuses these
+  # values; ALLOW_INSECURE_LOCAL_SECRETS turns that check off for this stack only, and the API logs
+  # a warning naming the example secrets in use. Set your own secrets and
+  # ALLOW_INSECURE_LOCAL_SECRETS=false before exposing the stack to anyone.
+  JWT_SECRET: ${JWT_SECRET:-local-only-jwt-secret-change-me-0123456789}
+  TRACKING_TOKEN_SECRET: ${TRACKING_TOKEN_SECRET:-local-only-tracking-secret-change-me-012345}
+  ALLOW_INSECURE_LOCAL_SECRETS: ${ALLOW_INSECURE_LOCAL_SECRETS:-true}
+  PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:57080}
+  CORS_ORIGINS: ${PUBLIC_WEB_URL:-http://localhost:57080}
+  TRUST_PROXY: 'true'
+  AUTH_THROTTLE_LIMIT: ${AUTH_THROTTLE_LIMIT:-10}
+  UPLOAD_DIR: /data/uploads
+  WEBHOOK_URL: ${WEBHOOK_URL:-}
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+  OSRM_URL: ${OSRM_URL:-}
+
+x-api-service: &api-service
+  profiles: [stack]
+  image: ${COMPOSE_PROJECT_NAME:-dispatch}-api:local
+  # Built by the migrate service; never pulled from a registry.
+  pull_policy: never
+  volumes:
+    - uploads:/data/uploads
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    redis: { condition: service_healthy }
+  healthcheck:
+    test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/ready']
+    interval: 3s
+    timeout: 3s
+    retries: 30
+  mem_limit: ${API_MEMORY:-384m}
+
+services:
+  postgres:
+    image: postgis/postgis:18-3.6-alpine
+    # Log every autovacuum run (checkpoints are logged by default), so a slow period in a scale
+    # run can be matched with database maintenance in its postgres.log.
+    command: ['postgres', '-c', 'log_autovacuum_min_duration=0']
+    environment:
+      POSTGRES_USER: dispatch
+      POSTGRES_PASSWORD: dispatch
+      POSTGRES_DB: dispatch
+    ports:
+      - '127.0.0.1:${DISPATCH_POSTGRES_PORT:-57432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # Over TCP: during first-time initialisation the server only listens on its socket.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U dispatch -d dispatch']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: ${POSTGRES_MEMORY:-768m}
+
+  redis:
+    image: redis:8.8.3-alpine
+    # BullMQ needs its keys to survive memory pressure: never evict, refuse writes instead.
+    command: ['redis-server', '--maxmemory', '192mb', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '127.0.0.1:${DISPATCH_REDIS_PORT:-57379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+
+  migrate:
+    profiles: [stack]
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: api }
+    image: ${COMPOSE_PROJECT_NAME:-dispatch}-api:local
+    command: ['sh', '-c', 'node dist/db/migrate.js && node dist/db/seed.js']
+    environment:
+      <<: *api-env
+      # The published demo password, for a stack on your own machine only.
+      SEED_DISPATCHER_PASSWORD: ${SEED_DISPATCHER_PASSWORD:-dispatch-demo-2026}
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 256m
+
+  api-1:
+    <<: *api-service
+    environment:
+      <<: *api-env
+      PROCESS_ROLE: api
+      INSTANCE_ID: api-1
+
+  api-2:
+    <<: *api-service
+    environment:
+      <<: *api-env
+      PROCESS_ROLE: api
+      INSTANCE_ID: api-2
+
+  worker:
+    <<: *api-service
+    environment:
+      <<: *api-env
+      PROCESS_ROLE: worker
+      INSTANCE_ID: worker
+    healthcheck:
+      disable: true
+    mem_limit: ${WORKER_MEMORY:-256m}
+
+  web:
+    profiles: [stack]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ''
+    image: ${COMPOSE_PROJECT_NAME:-dispatch}-web:local
+    mem_limit: 384m
+
+  # Copies the basemap extract (if present) into a volume nginx can read as an unprivileged user.
+  # Bind-mounted files are not always readable by non-root users (Docker Desktop on Windows).
+  tiles:
+    profiles: [stack]
+    image: nginx:1.30.5-alpine
+    command: ['sh', '-c', 'cp /src/*.pmtiles /tiles/ 2>/dev/null; chmod -R a+rX /tiles; ls /tiles']
+    volumes:
+      - ./apps/web/public/tiles:/src:ro
+      - tiles:/tiles
+    mem_limit: 64m
+
+  nginx:
+    profiles: [stack]
+    image: nginx:1.30.5-alpine
+    ports:
+      - '127.0.0.1:${DISPATCH_HTTP_PORT:-57080}:80'
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - tiles:/srv/tiles:ro
+    depends_on:
+      api-1: { condition: service_healthy }
+      api-2: { condition: service_healthy }
+      tiles: { condition: service_completed_successfully }
+    mem_limit: 64m
+
+  # Tested only with the small Overpass box (scripts/prepare-osrm.sh --bbox …); the 2g limit has
+  # not been tried with the full GCC extract.
+  osrm:
+    profiles: [osrm]
+    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
+    command: ['osrm-routed', '--algorithm', 'mld', '--max-table-size', '1000', '/data/region.osrm']
+    ports:
+      - '127.0.0.1:${DISPATCH_OSRM_PORT:-57500}:5000'
+    volumes:
+      - ./osrm/data:/data:ro
+    mem_limit: ${OSRM_MEMORY:-2g}
+
+volumes:
+  pgdata:
+  uploads:
+  tiles:

@@ -1,0 +1,46 @@
+{
+  "run": "20260926T024932Z",
+  "gitCommit": "e647905",
+  "drivers": 50,
+  "durationSeconds": 120,
+  "intervalSeconds": 3,
+  "killedInstance": "api-2",
+  "survivingInstance": "api-1",
+  "killedAt": "2026-09-26T02:50:58Z",
+  "k6": {
+    "fixesRecorded": 1999,
+    "fixesAccepted": 1999,
+    "fixesDuplicate": 0,
+    "fixesRefused": 0,
+    "fixesUnacknowledged": 0,
+    "batchRetries": 0,
+    "batchesFailed": 0,
+    "httpRequests": 1999
+  },
+  "storedFixes": 1999,
+  "consoleA": {
+    "received": 1999,
+    "lost": 0,
+    "connects": 2,
+    "disconnects": 1,
+    "resumes": 1,
+    "recoveredByResume": 150,
+    "instances": ["api-2", "api-1"]
+  },
+  "consoleB": {
+    "received": 1999,
+    "lost": 0,
+    "connects": 1,
+    "disconnects": 0,
+    "resumes": 0,
+    "recoveredByResume": 0,
+    "instances": ["api-1"]
+  },
+  "latencyP95Ms": "not published (shared machine)",
+  "host": {
+    "os": "MINGW64_NT-10.0-26200",
+    "dockerCpus": 16,
+    "dockerMemoryBytes": 7926865920,
+    "dockerServerVersion": "29.8.0"
+  }
+}

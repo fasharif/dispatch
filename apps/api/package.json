@@ -1,0 +1,50 @@
+{
+  "name": "@dispatch/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS API: deliveries, driver locations, Socket.IO fan-out, proof of delivery, tracking links and the webhook outbox.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "concurrently -k -n tsc,api \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch --env-file-if-exists=.env dist/main.js\"",
+    "start": "node --env-file-if-exists=.env dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e",
+    "db:migrate": "node --env-file-if-exists=.env dist/db/migrate.js",
+    "db:seed": "node --env-file-if-exists=.env dist/db/seed.js"
+  },
+  "dependencies": {
+    "@dispatch/shared": "*",
+    "@nestjs/common": "12.1.0",
+    "@nestjs/core": "12.1.0",
+    "@nestjs/platform-express": "12.1.0",
+    "@nestjs/platform-socket.io": "12.1.0",
+    "@nestjs/throttler": "6.7.1",
+    "@nestjs/websockets": "12.1.0",
+    "@socket.io/redis-adapter": "8.3.0",
+    "bullmq": "6.3.9",
+    "helmet": "8.3.0",
+    "ioredis": "6.0.0",
+    "jose": "6.2.12",
+    "pg": "8.23.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "socket.io": "4.8.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "12.1.0",
+    "@swc/core": "1.16.2",
+    "@types/express": "5.0.6",
+    "@types/multer": "2.2.0",
+    "@types/pg": "8.23.1",
+    "concurrently": "10.0.5",
+    "socket.io-client": "4.8.3",
+    "unplugin-swc": "2.0.0",
+    "vitest": "5.0.2"
+  }
+}

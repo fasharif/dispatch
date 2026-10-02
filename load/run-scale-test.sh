@@ -69,6 +69,11 @@ fail() {
 cleanup() {
   local code=$?
   stop_sampling
+  # PostgreSQL logs its checkpoints and nginx its upstream failures: both explain slow periods.
+  for service in postgres nginx; do
+    docker compose --profile stack logs --no-color --timestamps "$service" \
+      > "$RESULTS/$service.log" 2>&1 || true
+  done
   if [[ "$code" -ne 0 ]]; then
     # Keep the services' logs next to the results for diagnosis (CI uploads the folder).
     docker compose --profile stack logs --no-color --timestamps > "$RESULTS/stack.log" 2>&1 || true

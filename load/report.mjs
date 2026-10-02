@@ -54,7 +54,7 @@ const killed = run.killedInstance.replace(/^dispatch-/, '');
 const survivor = run.survivingInstance.replace(/^dispatch-/, '');
 const replayed = k6.fixesDuplicate + k6.batchRetries;
 
-const environment = `${run.host.os}, Docker ${run.host.dockerServerVersion}, ${run.host.dockerCpus} CPUs, ${gib(run.host.dockerMemoryBytes)}; commit ${run.gitCommit}`;
+const environment = `${run.host.os}, Docker ${run.host.dockerServerVersion}, ${run.host.dockerCpus} CPUs, ${gib(run.host.dockerMemoryBytes)}${run.databasePoolMax ? `; ${run.databasePoolMax} DB connections per API` : ''}; commit ${run.gitCommit}`;
 
 // Resource use, from the `docker stats` samples (stats.jsonl; runs before it existed have none).
 const SERVICES = {

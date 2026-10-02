@@ -21,10 +21,10 @@ name: dispatch
 x-api-env: &api-env
   NODE_ENV: production
   DATABASE_URL: postgresql://dispatch:dispatch@postgres:5432/dispatch
-  # Each API instance must carry the whole fleet when the other one dies. Every location batch
-  # holds a connection through two commits, and with 10 connections the surviving instance queued
-  # batches at 1,000 drivers (p95 driver-to-console about 480 ms after the kill, against about
-  # 35 ms with 20; docs/scale-test.md). 2 × 20 plus the worker stays well under PostgreSQL's 100.
+  # Each API instance must carry the whole fleet when the other one dies, so each gets the
+  # connections both have together (the API's own default is 10). This is headroom, not a measured
+  # need: a 1,000-driver run with 10 showed no difference after the kill (docs/scale-test.md).
+  # 2 × 20 plus the worker stays well under PostgreSQL's 100.
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
   REDIS_URL: redis://redis:6379
   # Example secrets for a stack on your own machine. NODE_ENV=production normally refuses these

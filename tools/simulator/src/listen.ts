@@ -13,7 +13,10 @@ import { summarise, type LatencySummary } from './stats.js';
 export interface ListenOptions {
   api: string;
   token: string;
+  /** Stops listening after this long at the latest. */
   durationSeconds: number;
+  /** Stops listening earlier when aborted (the scale test does so once k6 has finished). */
+  signal?: AbortSignal;
   log?: (line: string) => void;
 }
 
@@ -34,6 +37,17 @@ export interface ListenReport {
   latencyLiveMs: LatencySummary;
   /** The same, including fixes recovered by a resume after a reconnect. */
   latencyAllMs: LatencySummary;
+  /**
+   * All fixes again, measured from the fix's recordedAt instead of the batch's sentAt. A fix whose
+   * first batch failed is stored with the sentAt of the retry that succeeded, so only this figure
+   * includes the time the device spent retrying.
+   */
+  latencyFromRecordedMs: LatencySummary;
+  /**
+   * Every value behind latencyAllMs as [sentAt (Unix ms), latency (ms)], in arrival order, so a
+   * report can split the run into phases (before and after an instance was killed, for example).
+   */
+  samples: [number, number][];
   receivedKeys: string[];
 }
 
@@ -52,6 +66,8 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
   const instances: string[] = [];
   const live: number[] = [];
   const all: number[] = [];
+  const fromRecorded: number[] = [];
+  const samples: [number, number][] = [];
   const report = {
     connects: 0,
     disconnects: 0,
@@ -70,10 +86,13 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
       return;
     }
     keys.add(fixKey(event));
+    const now = Date.now();
+    fromRecorded.push(now - Date.parse(event.recordedAt));
     if (event.sentAt !== null) {
-      const latency = Date.now() - event.sentAt;
+      const latency = now - event.sentAt;
       all.push(latency);
       if (!resumed) live.push(latency);
+      samples.push([event.sentAt, latency]);
     }
   };
 
@@ -128,7 +147,15 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
       });
   });
 
-  await new Promise((resolve) => setTimeout(resolve, options.durationSeconds * 1000));
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, options.durationSeconds * 1000);
+    const stop = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    if (options.signal?.aborted) stop();
+    else options.signal?.addEventListener('abort', stop, { once: true });
+  });
   await resuming;
   socket.close();
 
@@ -146,6 +173,8 @@ export async function listen(options: ListenOptions): Promise<ListenReport> {
     uniqueFixes: keys.size,
     latencyLiveMs: summarise(live),
     latencyAllMs: summarise(all),
+    latencyFromRecordedMs: summarise(fromRecorded),
+    samples,
     receivedKeys: [...keys],
   };
 }

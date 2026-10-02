@@ -29,7 +29,7 @@ demo      [--drivers <n>=12] [--interval <s>=2] [--duration <s>=600] [--order-ev
 seed and demo reuse drivers that already exist under the same name, so running them again
 does not create duplicates. demo also keeps the phones it enrolled in the fleet file (device
 tokens: keep it private) and reuses them on the next run while they work.
-listen    [--duration <s>=60] [--out <file>=listen-report.json]
+listen    [--duration <s>=60] [--out <file>=listen-report.json]   (SIGTERM stops it early)
 verify    --report <file> --database-url <url> [--result <file>]
 `;
 
@@ -133,14 +133,21 @@ async function main(): Promise<number> {
       return 0;
     }
     case 'listen': {
+      // `docker stop` ends the listen early; the report is still written.
+      const stop = new AbortController();
+      process.once('SIGTERM', () => {
+        log('SIGTERM: stopping');
+        stop.abort();
+      });
       const report = await listen({
         api: values.api,
         token: await dispatcherToken(values.api),
         durationSeconds: number(values.duration, 60, 'duration'),
+        signal: stop.signal,
         log,
       });
       await writeFile(values.out, `${JSON.stringify(report)}\n`);
-      const { receivedKeys: _keys, ...summary } = report;
+      const { receivedKeys: _keys, samples: _samples, ...summary } = report;
       log(`Report written to ${values.out}: ${JSON.stringify(summary)}`);
       return 0;
     }

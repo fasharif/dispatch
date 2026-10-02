@@ -7,21 +7,24 @@
 #   - the "surviving" console connects straight to the other instance and stays connected. It
 #     receives fixes from the killed instance only through the Redis adapter, and replays.
 #
-# Halfway through, the reconnecting console's instance is killed with SIGKILL. The run then checks,
-# against the database, that every fix the drivers had acknowledged reached both consoles: lost
-# events must be zero. It fails as well when the kill did not disconnect the reconnecting console,
-# or when the surviving console lost its connection, because the run then did not test failover.
+# Halfway through (counted from the first stored fix), the reconnecting console's instance is
+# killed with SIGKILL. When k6 has finished, both consoles are stopped and the run checks, against
+# the database, that every fix the drivers had acknowledged reached both consoles: lost events
+# must be zero. It fails as well when the kill did not disconnect the reconnecting console, or when
+# the surviving console lost its connection, because the run then did not test failover.
 #
 #   load/run-scale-test.sh [--drivers 50] [--duration 120] [--interval 3] [--keep-stack]
 #
-# Results go to load/results/<timestamp>/. Latency percentiles are recorded there; see
-# docs/scale-test.md for when they are published.
+# Results go to load/results/<timestamp>/: counts, latency percentiles, and a `docker stats`
+# sample of every container every STATS_EVERY seconds (5 by default). See docs/scale-test.md for
+# when timings are published.
 #
 # Every name follows the compose project, so a second stack can run beside another one, e.g.
 #   COMPOSE_PROJECT_NAME=dispatch-b DISPATCH_HTTP_PORT=57180 DISPATCH_POSTGRES_PORT=57532 \
 #   DISPATCH_REDIS_PORT=57479 load/run-scale-test.sh
 # Memory limits: API_MEMORY and POSTGRES_MEMORY (docker-compose.yml), K6_MEMORY (512m) and
-# LISTENER_MEMORY (256m) here. The defaults have been used for runs of up to 50 drivers only.
+# LISTENER_MEMORY (256m) here. The defaults suit runs of up to 50 drivers; docs/scale-test.md gives
+# the limits used for 1,000.
 set -euo pipefail
 
 DRIVERS=50
@@ -52,6 +55,8 @@ TOOLS_IMAGE="$PROJECT-tools:local"
 K6_CONTAINER="$PROJECT-k6"
 K6_MEMORY="${K6_MEMORY:-512m}"
 LISTENER_MEMORY="${LISTENER_MEMORY:-256m}"
+STATS_EVERY="${STATS_EVERY:-5}"
+STATS_PID=""
 export MSYS_NO_PATHCONV=1
 mkdir -p "$RESULTS"
 
@@ -63,6 +68,7 @@ fail() {
 
 cleanup() {
   local code=$?
+  stop_sampling
   if [[ "$code" -ne 0 ]]; then
     # Keep the services' logs next to the results for diagnosis (CI uploads the folder).
     docker compose --profile stack logs --no-color --timestamps > "$RESULTS/stack.log" 2>&1 || true
@@ -75,6 +81,24 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+# Resource use: one `docker stats` sample of every running container every STATS_EVERY seconds
+# (report.mjs keeps this project's). Each sample itself takes about two seconds.
+sample_resources() {
+  local at
+  while :; do
+    at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    docker stats --no-stream --format '{{json .}}' 2>/dev/null |
+      sed "s/^{/{\"at\":\"$at\",/" >> "$RESULTS/stats.jsonl" || true
+    sleep "$STATS_EVERY"
+  done
+}
+stop_sampling() {
+  if [[ -n "$STATS_PID" ]]; then
+    kill "$STATS_PID" 2>/dev/null || true
+    STATS_PID=""
+  fi
+}
 
 log "Building images and starting the stack (two API instances, worker, nginx)"
 docker build -q -f apps/api/Dockerfile --target tools -t "$TOOLS_IMAGE" . >/dev/null
@@ -113,8 +137,10 @@ serving_instance() {
 log "Enrolling $DRIVERS simulated drivers"
 tools seed --api http://nginx --drivers "$DRIVERS" --prefix "Load Driver" --fleet /work/fleet.json
 
-LISTEN_FOR=$((DURATION + 40))
-log "Starting the reconnecting console (through nginx) for ${LISTEN_FOR}s"
+# An upper bound only: both consoles are stopped once k6 has finished. k6 can take a while to
+# start a large fleet, and lets iterations run on for up to 30 s after the duration.
+LISTEN_FOR=$((DURATION + 900))
+log "Starting the reconnecting console (through nginx)"
 listener "$PROJECT-listener-lb" http://nginx listen-lb.json
 VICTIM="$(serving_instance "$PROJECT-listener-lb")" ||
   fail "the console behind nginx did not report its instance (see docker logs $PROJECT-listener-lb)"
@@ -124,12 +150,36 @@ listener "$PROJECT-listener-survivor" "http://$SURVIVOR:3000" listen-survivor.js
 serving_instance "$PROJECT-listener-survivor" >/dev/null ||
   fail "the console on $SURVIVOR did not connect (see docker logs $PROJECT-listener-survivor)"
 
+stored_fixes() {
+  docker compose exec -T postgres psql -U dispatch -d dispatch -tAc \
+    'SELECT count(*) FROM location_updates' | tr -d '[:space:]'
+}
+STORED_BEFORE="$(stored_fixes)"
+sample_resources &
+STATS_PID=$!
+
 log "Running k6: $DRIVERS drivers, a fix every ${INTERVAL}s, for ${DURATION}s"
+K6_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker run -d --name "$K6_CONTAINER" --user root --network "$NETWORK" --memory "$K6_MEMORY" \
   -v "$LOAD_HOST:/scripts:ro" -v "$RESULTS_HOST:/results:ro" \
   -e FLEET=/results/fleet.json -e API_URL=http://nginx \
   -e DURATION="${DURATION}s" -e INTERVAL_S="$INTERVAL" \
   grafana/k6:2.3.0 run --quiet /scripts/drivers.ts >/dev/null
+
+# k6 starts every virtual user before its clock runs, which takes a while for a large fleet, so
+# "halfway" is counted from the first fix stored.
+LOAD_STARTED_AT=""
+for _ in $(seq 1 600); do
+  if [[ "$(stored_fixes)" -gt "$STORED_BEFORE" ]]; then
+    LOAD_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    break
+  fi
+  [[ "$(docker inspect -f '{{.State.Running}}' "$K6_CONTAINER")" == true ]] ||
+    fail "k6 stopped before any fix was stored (see docker logs $K6_CONTAINER)"
+  sleep 1
+done
+[[ -n "$LOAD_STARTED_AT" ]] || fail "no fix was stored within 10 minutes of starting k6"
+log "First fix stored; killing $VICTIM in $((DURATION / 2))s"
 
 sleep $((DURATION / 2))
 KILLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -137,14 +187,21 @@ log "Killing $VICTIM (SIGKILL) mid-test"
 docker compose --profile stack kill --signal KILL "$VICTIM" >/dev/null 2>&1
 
 docker wait "$K6_CONTAINER" >/dev/null
+K6_ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker logs "$K6_CONTAINER" > "$RESULTS/k6.log" 2>&1 || true
 grep '^{' "$RESULTS/k6.log" | tail -n 1 > "$RESULTS/k6-summary.json" || true
 [[ -s "$RESULTS/k6-summary.json" ]] || fail "k6 produced no summary (see $RESULTS/k6.log)"
 log "k6 finished: $(cat "$RESULTS/k6-summary.json")"
+# Every acknowledged fix was broadcast before its answer; give the last ones time to arrive, then
+# stop both consoles. On SIGTERM each one writes its report and exits.
+sleep 10
+docker stop --time 120 "$PROJECT-listener-lb" "$PROJECT-listener-survivor" >/dev/null
 for name in lb survivor; do
-  docker wait "$PROJECT-listener-$name" >/dev/null
   docker logs "$PROJECT-listener-$name" > "$RESULTS/listener-$name.log" 2>&1
+  [[ "$(docker wait "$PROJECT-listener-$name")" -eq 0 ]] ||
+    fail "console $name did not finish cleanly (see $RESULTS/listener-$name.log)"
 done
+stop_sampling
 
 log "Comparing what the database stored with what each console received"
 set +e
@@ -167,9 +224,17 @@ cat > "$RESULTS/run.json" <<JSON
   "killedInstance": "$VICTIM",
   "survivingInstance": "$SURVIVOR",
   "killedAt": "$KILLED_AT",
+  "k6StartedAt": "$K6_STARTED_AT",
+  "loadStartedAt": "$LOAD_STARTED_AT",
+  "k6EndedAt": "$K6_ENDED_AT",
+  "project": "$PROJECT",
+  "databasePoolMax": "$(docker compose exec -T "$SURVIVOR" printenv DATABASE_POOL_MAX 2>/dev/null | tr -d '[:space:]')",
+  "statsEverySeconds": $STATS_EVERY,
   "gitCommit": "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)",
   "host": {
     "os": "$(uname -s)",
+    "cpuModel": "$(sed -n 's/^model name[[:space:]]*: *//p' /proc/cpuinfo 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//')",
+    "dockerPlatform": "$(docker version --format '{{.Server.Platform.Name}}' 2>/dev/null || true)",
     "dockerCpus": $(docker info --format '{{.NCPU}}'),
     "dockerMemoryBytes": $(docker info --format '{{.MemTotal}}'),
     "dockerServerVersion": "$(docker info --format '{{.ServerVersion}}')"

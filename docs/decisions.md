@@ -354,14 +354,20 @@ resume, when console B lost its connection, or when k6 saw a fix refused or neve
 (k6's duplicate answers and retries) and says when there were none, because only the end-to-end
 test forces that path. Latency is measured from the batch's `sentAt` to arrival at the console,
 on the same Docker host, and recorded in the run's folder; it is published in docs/scale-test.md
-only from a run on a quiet machine (`--publish-timings`). Each published row links to a file in
-`docs/scale-runs/` with the counts behind it; the raw results are not committed, because the
-fleet file holds device tokens.
+only from runs with no other workload in Docker (`--publish-timings`), as p50, p95 and p99 for the
+whole run, for each phase around the kill and for each 30-second window. The runner also keeps
+`docker stats` samples, PostgreSQL's and nginx's logs and Docker's container events, so a slow
+period can be checked against them. Each published row links to a file in `docs/scale-runs/` with
+the counts behind it; the raw results are not committed, because the fleet file holds device
+tokens.
 
 **Consequences.** The published claim is a count for both consoles, reproducible by anyone with
-Docker. Whether a batch is in flight at the moment of the kill is chance at small scale, so the
-replay path is covered deterministically by the end-to-end test rather than by this run. Latency
-figures stay pending until a clean run exists.
+Docker. Whether a batch is in flight at the moment of the kill is chance, so the replay path is
+covered deterministically by the end-to-end test; one of three 1,000-driver runs also hit it
+(3 fixes replayed, none lost). Three 1,000-driver runs on one laptop lost no events and gave p50
+9 ms and p95 46 to 53 ms. p99 varied from 145 to 407 ms, because each run had one slow stretch
+that the kept evidence does not explain. The figures describe the design on one machine, not
+the capacity of a deployment.
 
 ## ADR-015 — Toolchain pins: TypeScript 6 and ESLint 9
 

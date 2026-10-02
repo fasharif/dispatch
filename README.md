@@ -10,9 +10,12 @@ enters with the delivery; TopFlow Hub's webhook receiver then marks that order d
 in its [`docs/DECISIONS.md`](https://github.com/fasharif/topflow/blob/develop/docs/DECISIONS.md)).
 Nothing here serves a real company.
 
-**Result so far:** in the scale test, with the API instance serving one of two consoles killed
-mid-run, none of the 1,999 fixes stored by 50 simulated drivers was lost on either console
-([docs/scale-test.md](docs/scale-test.md)). Latency figures are pending a run on a quiet machine.
+**Result so far:** in three 10-minute scale-test runs on one laptop, 1,000 simulated drivers sent
+about 330 fixes a second to two API instances, and the instance serving one of two consoles was
+killed halfway. None of the roughly 198,000 fixes stored in each run was lost on either console.
+Driver-to-console latency was p50 9 ms and p95 46 to 53 ms. p99 was 145 to 407 ms, because each
+run had one slow stretch of 1 to 2 minutes whose cause is not identified
+([docs/scale-test.md](docs/scale-test.md)).
 
 ![The dispatcher console during the demo: drivers move across Dubai and a delivery on its way is selected (40 seconds, played five times faster)](docs/screenshots/demo.gif)
 
@@ -69,9 +72,10 @@ signal in car parks and tunnels, so anything that relies on a constant connectio
   ([apps/api/test/fixtures](apps/api/test/fixtures/README.md)).
 - **ETA** from OSRM when it is configured (optional compose profile), otherwise a documented
   straight-line estimate; every ETA says which one it is.
-- **Scale test.** Two API instances behind nginx, simulated drivers in k6, a console on each
-  instance, the instance of one console killed mid-run, and a count of lost events against the
-  database for both consoles.
+- **Scale test.** Two API instances behind nginx, up to 1,000 simulated drivers in k6, a console
+  on each instance, the instance of one console killed mid-run, and a count of lost events against
+  the database for both consoles. It reports latency percentiles by phase and in 30-second
+  windows, and each container's CPU and memory.
 
 ## Architecture
 
@@ -220,6 +224,30 @@ stack).
 end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle, a
 20-driver scale smoke test, and shellcheck and actionlint on the scripts and the workflow.
 
+### Scale test at 1,000 drivers
+
+```bash
+K6_MEMORY=2g LISTENER_MEMORY=512m load/run-scale-test.sh --drivers 1000 --duration 600
+```
+
+There were three runs on 2 October 2026. Each used 1,000 drivers, one fix every 3 s, for
+600 s, with the instance serving console A killed with SIGKILL after 300 s. They ran on a
+Windows 11 Home laptop (AMD Ryzen 7 6800H, 16 GB) under Docker Desktop 4.93.0 (WSL 2). All
+containers shared 16 CPUs and 7.4 GiB. Memory limits: k6 2 GiB, each console 512 MiB, each API
+instance 384 MiB with 20 database connections, PostgreSQL 768 MiB, Redis 256 MiB.
+
+| Run                                                       | Fixes stored | Lost (A / B) | Console B latency, p50 / p95 / p99 | p95 before the kill |
+| --------------------------------------------------------- | ------------ | ------------ | ---------------------------------- | ------------------- |
+| [20261002T194456Z](docs/scale-runs/20261002T194456Z.json) | 198,203      | 0 / 0        | 9 / 45 / 403 ms                    | 21 ms               |
+| [20261002T195802Z](docs/scale-runs/20261002T195802Z.json) | 198,752      | 0 / 0        | 9 / 46 / 142 ms                    | 18 ms               |
+| [20261002T201334Z](docs/scale-runs/20261002T201334Z.json) | 198,341      | 0 / 0        | 9 / 53 / 272 ms                    | 29 ms               |
+
+Latency is measured from when the driver's batch was sent to when the console received the fix.
+On average, all containers together used 2.1 to 2.4 of the 16 CPUs, and at most 1.2 GiB of
+memory. After the kill, the surviving API instance carried the whole load at about two-thirds of
+one CPU and at most 83 MiB. [docs/scale-test.md](docs/scale-test.md) has latency by phase, the
+resource table, and what is and is not known about the slow stretches behind the p99 figures.
+
 ## Folder structure
 
 ```text
@@ -250,9 +278,12 @@ tokens, and the rest.
   location policy follows expo-location's documented behaviour; background location,
   permissions, update rates while standing still and battery use on real Android and iOS devices
   are untested.
-- **Latency figures are pending.** The 50-driver scale run recorded zero lost events on both
-  consoles with the reconnecting console's API instance killed; p95 driver-to-console latency will
-  be published from a 1,000-driver run on a quiet machine ([docs/scale-test.md](docs/scale-test.md)).
+- **The scale test has run on one laptop only.** Every container shared one Docker Desktop VM
+  (16 CPUs, 7.4 GiB). In three 1,000-driver runs, p50 and p95 latency were steady, but p99
+  varied from 145 to 407 ms, because each run had one slow stretch of 1 to 2 minutes. The CPU
+  samples, PostgreSQL's log and Docker's events do not explain those stretches. In one run the
+  killed API instance was started again almost four minutes after the kill, by something outside
+  the harness that was not identified ([docs/scale-test.md](docs/scale-test.md)).
 - **OSRM was checked with a small box of Dubai roads only.** The full GCC extract has not been
   processed on the development machine (shared with other workloads, limited memory), so its
   memory needs are not known here. The fallback ETA ignores traffic.
@@ -274,7 +305,7 @@ tokens, and the rest.
 - GPS spoofing is not detected.
 - Roadmap: road-time assignment, importing orders from TopFlow Hub instead of typing their
   numbers, SMS or WhatsApp delivery of tracking links, object storage for photos, store builds of
-  the driver app, the 1,000-driver timing run.
+  the driver app, a scale test with the services on separate machines.
 
 ## Licence
 

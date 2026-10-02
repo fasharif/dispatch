@@ -1,0 +1,243 @@
+{
+  "run": "20261002T195802Z",
+  "gitCommit": "7ca8fae",
+  "drivers": 1000,
+  "durationSeconds": 600,
+  "intervalSeconds": 3,
+  "killedInstance": "api-2",
+  "survivingInstance": "api-1",
+  "loadStartedAt": "2026-10-02T19:59:30Z",
+  "killedAt": "2026-10-02T20:04:31Z",
+  "databasePoolMaxPerInstance": 20,
+  "k6EndedAt": "2026-10-02T20:09:34Z",
+  "k6": {
+    "fixesRecorded": 198752,
+    "fixesAccepted": 198749,
+    "fixesDuplicate": 3,
+    "fixesRefused": 0,
+    "fixesUnacknowledged": 0,
+    "batchRetries": 0,
+    "batchesFailed": 0,
+    "httpRequests": 198752
+  },
+  "storedFixes": 198752,
+  "consoleA": {
+    "received": 198752,
+    "lost": 0,
+    "connects": 2,
+    "disconnects": 1,
+    "resumes": 1,
+    "recoveredByResume": 1760,
+    "instances": ["api-2", "api-1"]
+  },
+  "consoleB": {
+    "received": 198752,
+    "lost": 0,
+    "connects": 1,
+    "disconnects": 0,
+    "resumes": 0,
+    "recoveredByResume": 0,
+    "instances": ["api-1"]
+  },
+  "latencyMs": {
+    "consoleA": {
+      "allFixes": { "count": 198752, "p50": 9, "p95": 47, "p99": 145, "max": 817 },
+      "liveFixes": { "count": 198656, "p50": 9, "p95": 46, "p99": 142, "max": 817 },
+      "allFixesFromRecordedAt": { "count": 198752, "p50": 9, "p95": 47, "p99": 145, "max": 817 }
+    },
+    "consoleB": {
+      "allFixes": { "count": 198752, "p50": 9, "p95": 46, "p99": 142, "max": 817 },
+      "liveFixes": { "count": 198752, "p50": 9, "p95": 46, "p99": 142, "max": 817 },
+      "allFixesFromRecordedAt": { "count": 198752, "p50": 9, "p95": 46, "p99": 142, "max": 817 }
+    },
+    "k6LocationRequests": {
+      "p(95)": 52.13851109999989,
+      "p(99)": 170.93452555999994,
+      "max": 886.020079,
+      "avg": 17.75480478917432,
+      "p(50)": 9.641905999999999
+    },
+    "byPhase": {
+      "consoleA": [
+        { "phase": "Before the kill", "count": 99731, "p50": 8, "p95": 18, "p99": 29, "max": 188 },
+        {
+          "phase": "First 30 s after the kill",
+          "count": 9985,
+          "p50": 10,
+          "p95": 34,
+          "p99": 106,
+          "max": 516
+        },
+        {
+          "phase": "From 30 s after the kill to the end",
+          "count": 89036,
+          "p50": 10,
+          "p95": 88,
+          "p99": 205,
+          "max": 817
+        }
+      ],
+      "consoleB": [
+        { "phase": "Before the kill", "count": 99731, "p50": 8, "p95": 18, "p99": 29, "max": 188 },
+        {
+          "phase": "First 30 s after the kill",
+          "count": 9985,
+          "p50": 10,
+          "p95": 31,
+          "p99": 64,
+          "max": 516
+        },
+        {
+          "phase": "From 30 s after the kill to the end",
+          "count": 89036,
+          "p50": 10,
+          "p95": 87,
+          "p99": 205,
+          "max": 817
+        }
+      ]
+    },
+    "timelineWindowSeconds": 30,
+    "timeline": {
+      "consoleA": [
+        { "fromSecond": 0, "count": 9734, "p50": 7, "p95": 12, "p99": 21, "max": 91 },
+        { "fromSecond": 30, "count": 9988, "p50": 8, "p95": 11, "p99": 16, "max": 51 },
+        { "fromSecond": 60, "count": 9966, "p50": 8, "p95": 11, "p99": 14, "max": 45 },
+        { "fromSecond": 90, "count": 9967, "p50": 8, "p95": 12, "p99": 18, "max": 61 },
+        { "fromSecond": 120, "count": 9950, "p50": 9, "p95": 22, "p99": 62, "max": 178 },
+        { "fromSecond": 150, "count": 9979, "p50": 10, "p95": 21, "p99": 29, "max": 73 },
+        { "fromSecond": 180, "count": 9922, "p50": 11, "p95": 23, "p99": 30, "max": 61 },
+        { "fromSecond": 210, "count": 9961, "p50": 9, "p95": 18, "p99": 25, "max": 36 },
+        { "fromSecond": 240, "count": 9954, "p50": 8, "p95": 18, "p99": 38, "max": 188 },
+        { "fromSecond": 270, "count": 9980, "p50": 8, "p95": 15, "p99": 30, "max": 108 },
+        { "fromSecond": 300, "count": 9957, "p50": 10, "p95": 34, "p99": 106, "max": 516 },
+        { "fromSecond": 330, "count": 9970, "p50": 8, "p95": 21, "p99": 33, "max": 507 },
+        { "fromSecond": 360, "count": 9965, "p50": 8, "p95": 26, "p99": 169, "max": 508 },
+        { "fromSecond": 390, "count": 9920, "p50": 16, "p95": 98, "p99": 129, "max": 602 },
+        { "fromSecond": 420, "count": 9836, "p50": 20, "p95": 134, "p99": 191, "max": 519 },
+        { "fromSecond": 450, "count": 9794, "p50": 15, "p95": 259, "p99": 325, "max": 817 },
+        { "fromSecond": 480, "count": 9835, "p50": 12, "p95": 129, "p99": 254, "max": 509 },
+        { "fromSecond": 510, "count": 9931, "p50": 15, "p95": 43, "p99": 63, "max": 529 },
+        { "fromSecond": 540, "count": 9977, "p50": 8, "p95": 17, "p99": 41, "max": 66 },
+        { "fromSecond": 570, "count": 9961, "p50": 9, "p95": 17, "p99": 29, "max": 139 },
+        { "fromSecond": 600, "count": 205, "p50": 11, "p95": 17, "p99": 20, "max": 22 }
+      ],
+      "consoleB": [
+        { "fromSecond": 0, "count": 9734, "p50": 7, "p95": 11, "p99": 21, "max": 90 },
+        { "fromSecond": 30, "count": 9988, "p50": 8, "p95": 11, "p99": 16, "max": 51 },
+        { "fromSecond": 60, "count": 9966, "p50": 8, "p95": 11, "p99": 15, "max": 46 },
+        { "fromSecond": 90, "count": 9967, "p50": 8, "p95": 12, "p99": 18, "max": 61 },
+        { "fromSecond": 120, "count": 9950, "p50": 9, "p95": 22, "p99": 63, "max": 177 },
+        { "fromSecond": 150, "count": 9979, "p50": 10, "p95": 20, "p99": 29, "max": 72 },
+        { "fromSecond": 180, "count": 9922, "p50": 11, "p95": 23, "p99": 31, "max": 61 },
+        { "fromSecond": 210, "count": 9961, "p50": 8, "p95": 17, "p99": 25, "max": 36 },
+        { "fromSecond": 240, "count": 9954, "p50": 8, "p95": 18, "p99": 38, "max": 188 },
+        { "fromSecond": 270, "count": 9980, "p50": 8, "p95": 15, "p99": 29, "max": 109 },
+        { "fromSecond": 300, "count": 9957, "p50": 10, "p95": 31, "p99": 64, "max": 516 },
+        { "fromSecond": 330, "count": 9970, "p50": 8, "p95": 21, "p99": 33, "max": 507 },
+        { "fromSecond": 360, "count": 9965, "p50": 8, "p95": 26, "p99": 169, "max": 508 },
+        { "fromSecond": 390, "count": 9920, "p50": 16, "p95": 97, "p99": 130, "max": 602 },
+        { "fromSecond": 420, "count": 9836, "p50": 20, "p95": 134, "p99": 191, "max": 519 },
+        { "fromSecond": 450, "count": 9794, "p50": 15, "p95": 259, "p99": 325, "max": 817 },
+        { "fromSecond": 480, "count": 9835, "p50": 12, "p95": 129, "p99": 254, "max": 509 },
+        { "fromSecond": 510, "count": 9931, "p50": 14, "p95": 43, "p99": 63, "max": 528 },
+        { "fromSecond": 540, "count": 9977, "p50": 8, "p95": 17, "p99": 41, "max": 65 },
+        { "fromSecond": 570, "count": 9961, "p50": 8, "p95": 17, "p99": 29, "max": 139 },
+        { "fromSecond": 600, "count": 205, "p50": 11, "p95": 17, "p99": 20, "max": 22 }
+      ]
+    }
+  },
+  "resources": {
+    "everySeconds": 5,
+    "containers": {
+      "api-1": {
+        "samples": 85,
+        "cpuMeanBeforeKillPct": 43.37119047619048,
+        "cpuMeanAfterKillPct": 65.6656097560976,
+        "cpuPeakPct": 105.06,
+        "memoryPeakBytes": 78485913.6,
+        "memoryLimitBytes": 402653184
+      },
+      "api-2": {
+        "samples": 53,
+        "cpuMeanBeforeKillPct": 43.379024390243906,
+        "cpuMeanAfterKillPct": 42.269999999999996,
+        "cpuPeakPct": 77.17,
+        "memoryPeakBytes": 74417438.72,
+        "memoryLimitBytes": 402653184
+      },
+      "worker": {
+        "samples": 85,
+        "cpuMeanBeforeKillPct": 0.06333333333333332,
+        "cpuMeanAfterKillPct": 0.046341463414634146,
+        "cpuPeakPct": 0.75,
+        "memoryPeakBytes": 55700357.12,
+        "memoryLimitBytes": 268435456
+      },
+      "nginx": {
+        "samples": 85,
+        "cpuMeanBeforeKillPct": 8.738333333333333,
+        "cpuMeanAfterKillPct": 8.790243902439023,
+        "cpuPeakPct": 12,
+        "memoryPeakBytes": 18905825.28,
+        "memoryLimitBytes": 67108864
+      },
+      "postgres": {
+        "samples": 85,
+        "cpuMeanBeforeKillPct": 96.19500000000001,
+        "cpuMeanAfterKillPct": 97.59048780487804,
+        "cpuPeakPct": 144.24,
+        "memoryPeakBytes": 264136294.4,
+        "memoryLimitBytes": 805306368
+      },
+      "redis": {
+        "samples": 85,
+        "cpuMeanBeforeKillPct": 8.707142857142859,
+        "cpuMeanAfterKillPct": 9.018292682926829,
+        "cpuPeakPct": 27.2,
+        "memoryPeakBytes": 82187386.88,
+        "memoryLimitBytes": 268435456
+      },
+      "k6": {
+        "samples": 83,
+        "cpuMeanBeforeKillPct": 27.97380952380952,
+        "cpuMeanAfterKillPct": 25.657804878048776,
+        "cpuPeakPct": 81.02,
+        "memoryPeakBytes": 461897728,
+        "memoryLimitBytes": 2147483648
+      },
+      "listener-lb": {
+        "samples": 84,
+        "cpuMeanBeforeKillPct": 5.507142857142858,
+        "cpuMeanAfterKillPct": 5.939756097560975,
+        "cpuPeakPct": 24.28,
+        "memoryPeakBytes": 100600381.44,
+        "memoryLimitBytes": 536870912
+      },
+      "listener-survivor": {
+        "samples": 84,
+        "cpuMeanBeforeKillPct": 5.803333333333334,
+        "cpuMeanAfterKillPct": 5.398048780487805,
+        "cpuPeakPct": 22.03,
+        "memoryPeakBytes": 99048488.96,
+        "memoryLimitBytes": 536870912
+      }
+    },
+    "total": {
+      "samples": 85,
+      "cpuMeanBeforeKillPct": 238.70547619047622,
+      "cpuMeanAfterKillPct": 228.4163414634147,
+      "cpuPeakPct": 370.95000000000005,
+      "memoryPeakBytes": 1216757104.64,
+      "memoryLimitBytes": 5435817984
+    }
+  },
+  "host": {
+    "os": "MINGW64_NT-10.0-26200",
+    "cpuModel": "AMD Ryzen 7 6800H with Radeon Graphics",
+    "dockerPlatform": "Docker Desktop 4.93.0 (240920)",
+    "dockerCpus": 16,
+    "dockerMemoryBytes": 7926865920,
+    "dockerServerVersion": "29.8.1"
+  }
+}

@@ -31,8 +31,11 @@ export async function verify(
       [devices],
     );
     const stored = new Set(rows.map((row) => row.key));
+    // Keys are "<deviceId>:<seq>". A set lookup per key: 1,000 devices and 200,000 keys would
+    // otherwise mean 200 million prefix comparisons.
+    const fleetDevices = new Set(devices);
     const received = new Set(
-      report.receivedKeys.filter((key) => devices.some((d) => key.startsWith(`${d}:`))),
+      report.receivedKeys.filter((key) => fleetDevices.has(key.slice(0, key.lastIndexOf(':')))),
     );
     const lost = [...stored].filter((key) => !received.has(key));
     return {

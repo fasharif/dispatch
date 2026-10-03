@@ -16,7 +16,6 @@
 # Map data © OpenStreetMap contributors, available under the Open Database Licence (ODbL).
 set -euo pipefail
 
-IMAGE=ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
 GCC_URL=https://download.geofabrik.de/asia/gcc-states-latest.osm.pbf
 # Overpass refuses requests without a User-Agent (HTTP 406).
 AGENT="dispatch-prepare-osrm/1 (portfolio project)"
@@ -29,6 +28,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$(dirname "$0")/.."
+# osrm-routed refuses data prepared by another OSRM minor version, so the data is prepared with the
+# image the compose profile serves (Dependabot updates it there).
+IMAGE="$(sed -n 's|^ *image: *\(ghcr\.io/project-osrm/osrm-backend:[^ ]*\) *$|\1|p' docker-compose.yml)"
+if [[ -z "$IMAGE" ]]; then
+  echo "No OSRM image found in docker-compose.yml" >&2
+  exit 1
+fi
 mkdir -p osrm/data
 DATA_HOST="$(pwd -W 2>/dev/null || pwd)/osrm/data"
 export MSYS_NO_PATHCONV=1

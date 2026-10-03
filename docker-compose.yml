@@ -131,8 +131,14 @@ services:
       <<: *api-env
       PROCESS_ROLE: worker
       INSTANCE_ID: worker
+    # The worker serves no HTTP, so the API's /health/ready check does not apply. This liveness
+    # check reports healthy while the worker process (PID 1) is alive: a crash stops the container.
+    # Newer Docker Compose versions make "up --wait" fail on a service whose healthcheck is disabled.
     healthcheck:
-      disable: true
+      test: ['CMD-SHELL', 'kill -0 1']
+      interval: 3s
+      timeout: 3s
+      retries: 3
     mem_limit: ${WORKER_MEMORY:-256m}
 
   web:

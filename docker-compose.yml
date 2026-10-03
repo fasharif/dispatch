@@ -171,7 +171,7 @@ services:
   # not been tried with the full GCC extract.
   osrm:
     profiles: [osrm]
-    image: ghcr.io/project-osrm/osrm-backend:v26.9.0-debian
+    image: ghcr.io/project-osrm/osrm-backend:26.10.0-debian
     command: ['osrm-routed', '--algorithm', 'mld', '--max-table-size', '1000', '/data/region.osrm']
     ports:
       - '127.0.0.1:${DISPATCH_OSRM_PORT:-57500}:5000'

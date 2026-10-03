@@ -372,23 +372,25 @@ the capacity of a deployment.
 
 ## ADR-015 — Toolchain pins: TypeScript 6 and ESLint 9
 
-**Context.** TypeScript 7 and ESLint 10 exist, but `typescript-eslint` does not support
-TypeScript 7 yet, and the Next.js and Expo ESLint configurations require ESLint 9: both use
-`eslint-plugin-react` 7, whose newest release (7.37.5) accepts ESLint up to 9 and fails to load
-its rules in ESLint 10 (`contextOrFilename.getFilename is not a function`). A Dependabot update
-to ESLint 10 broke the lint that way and was reverted (ADR-019).
+**Context.** TypeScript 7 and ESLint 10 exist, but `typescript-eslint` does not support TypeScript 7
+yet (8.71.0 accepts TypeScript `>=4.8.4 <6.1.0`), and the Next.js and Expo ESLint configurations
+require ESLint 9: both use `eslint-plugin-react` 7, whose newest release (7.37.5) accepts ESLint up
+to 9 and fails to load its rules in ESLint 10 (`contextOrFilename.getFilename is not a function`). A
+Dependabot update to ESLint 10 broke the lint that way and was reverted (ADR-019).
 
-**Decision.** TypeScript 6.0 and ESLint 9.39 with `typescript-eslint`'s strict type-checked
-rules across the workspace, exact versions in every `package.json`, and the lockfile committed.
-Dependabot proposes updates weekly, grouped by family (NestJS, Expo, React types, lint, test), and
-does not propose ESLint majors. ESLint 10 for the workspaces without React and ESLint 9 for the
+**Decision.** TypeScript 6.0 and ESLint 9.39 with `typescript-eslint`'s strict type-checked rules
+across the workspace, exact versions in every `package.json`, and the lockfile committed. Dependabot
+proposes updates weekly, grouped by family (NestJS, Expo, React types, lint, test), and does not
+propose TypeScript or ESLint majors, nor `@types/node` majors, which follow the Node 24 runtime
+(`.nvmrc` and the Docker images). ESLint 10 for the workspaces without React and ESLint 9 for the
 web and driver apps was considered and not done: two linter majors in one lockfile, for the same
 rules.
 
 **Consequences.** One compiler and one linter configuration everywhere. Moving to TypeScript 7
 waits for `typescript-eslint`, and moving to ESLint 10 waits for `eslint-plugin-react` (or for the
 Next.js and Expo configurations to drop it). Until then the lint runs on a release npm marks as no
-longer supported (9.39.5), which receives no further fixes.
+longer supported (9.39.5), which receives no further fixes. A new `@types/node` major is taken
+together with the Node.js runtime it describes.
 
 ## ADR-016 — Docker Desktop bind-mount workarounds
 

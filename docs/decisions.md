@@ -22,7 +22,7 @@ costs. Newer records can replace older ones; nothing is edited silently.
 | [015](#adr-015--toolchain-pins-typescript-6-and-eslint-9)                                          | Toolchain pins: TypeScript 6 and ESLint 9                                            |
 | [016](#adr-016--docker-desktop-bind-mount-workarounds)                                             | Docker Desktop bind-mount workarounds                                                |
 | [017](#adr-017--the-console-reloads-drivers-and-deliveries-on-every-connection)                    | The console reloads drivers and deliveries on every connection                       |
-| [018](#adr-018--the-uuid-advisory-in-expos-build-tooling-is-accepted)                              | The uuid advisory in Expo's build tooling is accepted                                |
+| [018](#adr-018--advisories-in-the-build-and-lint-tooling-are-accepted)                             | Advisories in the build and lint tooling are accepted                                |
 | [019](#adr-019--dependency-updates-follow-the-expo-sdk-nestjs-and-the-compose-stack)               | Dependency updates follow the Expo SDK, NestJS and the compose stack                 |
 
 ---
@@ -429,20 +429,35 @@ made while it was away one by one; the delivery's own history (its events) has t
 delivery and status events into a resumable stream as well would give that, with more moving
 parts; it is not needed for a console that shows current state.
 
-## ADR-018 — The uuid advisory in Expo's build tooling is accepted
+## ADR-018 — Advisories in the build and lint tooling are accepted
 
-**Context.** `npm audit` reports GHSA-w5hq-g745-h8pq (moderate) for `uuid` 7.0.3, which `xcode`
-3.0.1 pulls in through `@expo/config-plugins`; npm counts it once per dependent package, 10 in
-all. The flaw is a missing bounds check in `v3`, `v5` and `v6` when the caller passes a buffer.
+**Context.** `npm audit` reports three advisories, each counted once for the affected package and
+once for every package that depends on it. When this record was first written only the first was
+reported (10 moderate findings); on 3 October 2026 the three give 26 (7 moderate, 19 high).
+GHSA-w5hq-g745-h8pq (moderate) is for `uuid` 7.0.3, which `xcode` 3.0.1 pulls in through
+`@expo/config-plugins`: a missing bounds check in `v3`, `v5` and `v6` when the caller passes a
+buffer. GHSA-vfj7-8cjw-p6xm (high) is for `braces` 3.0.3, which `micromatch` uses in Metro's file
+map (`@expo/metro-file-map`, `metro-file-map`) and in `fast-glob` under `@next/eslint-plugin-next`:
+deeply nested brace patterns exhaust the stack. GHSA-86w9-cpqp-85rv (high) is for `node-forge`
+1.4.0, which `@expo/cli` uses for iOS code signing and for signing Expo updates: its RSA PKCS#1 v1.5
+signature verification accepts extra nested `DigestAlgorithm` elements. `braces` and `node-forge`
+have no fixed release yet; 3.0.3 and 1.4.0 are their newest.
 
-**Decision.** Accept it for now. `xcode` calls only `uuid.v4()` without a buffer, and the code runs
-only in Expo's build tooling (config plugins, prebuild), never in the API, the web app or the
-driver app's bundle. An npm `overrides` entry for `uuid` 11.1.1 was tried: npm did not apply it
-through the workspace link, and a hand-edited lockfile made `npm ls` report the tree as invalid,
-so it was not kept. Dependabot's Expo group will propose the fixed Expo release.
+**Decision.** Accept them for now. `xcode` calls only `uuid.v4()` without a buffer. The patterns
+`braces` expands come from the Metro and ESLint configuration in this repository, not from users of
+the system. The driver app uses neither the Expo CLI's iOS code signing nor signed updates (it has
+no `expo-updates`). All three run only in Expo's build tooling and the Next.js lint rules, never in
+the API, the web app or the driver app's bundle: `npm ls --omit=dev` lists none of them for the API
+and web workspaces. An npm `overrides` entry for `uuid` 11.1.1 was tried: npm did not apply it
+through the workspace link, and a hand-edited lockfile made `npm ls` report the tree as invalid, so
+it was not kept. Dependabot's version updates cover only the packages named in the manifests. A
+fixed `braces` or `node-forge` within the ranges their dependents accept is taken with
+`npm update braces node-forge`. A fix in an Expo package arrives as an SDK 57 patch pull request
+(ADR-019); one that ships only with a new SDK needs a manual `npx expo install expo@^<SDK> --fix`.
 
-**Consequences.** `npm audit` is not clean, and the README says why. The finding is reviewed again
-when Expo updates `@expo/config-plugins` or `xcode`.
+**Consequences.** `npm audit` is not clean, and the README says why. The findings are reviewed again
+when `braces` or `node-forge` publish a fix, and when Expo or `eslint-config-next` update the
+packages that bring them in.
 
 ## ADR-019 — Dependency updates follow the Expo SDK, NestJS and the compose stack
 

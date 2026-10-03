@@ -445,16 +445,19 @@ when Expo updates `@expo/config-plugins` or `xcode`.
 ## ADR-019 — Dependency updates follow the Expo SDK, NestJS and the compose stack
 
 **Context.** Dependabot proposes each package's newest release, but some versions here are set by
-another package. Merging the first round of Dependabot pull requests on 3 October 2026 broke CI.
-The Expo group moved React Native to 0.87.1 and react-native-svg to 15.15.5, while Expo SDK 57
-expects 0.86.3 and 15.15.4, and Metro failed to find `react-native/rn-get-polyfills`. socket.io
-4.8.4 put a second copy into `apps/api` beside the 4.8.3 that `@nestjs/platform-socket.io` 12.1
-depends on exactly, so `RedisIoAdapter` no longer type-checked. ESLint 10 could not load
-`eslint-plugin-react` (ADR-015). Outside CI, the compose stack's OSRM image moved to 26.10 while
+another package. Merging the first round of Dependabot pull requests on 3 October 2026 broke CI. The
+Expo group moved React Native to 0.87.1 and react-native-svg to 15.15.5, while Expo SDK 57 expects
+0.86.3 and 15.15.4, and Metro failed to find `react-native/rn-get-polyfills`. The React group,
+merged later the same day, moved react, react-dom and their types to 19.3.0 in both apps, while Expo
+SDK 57 pins React 19.2.3 and the web console shares the driver app's React (ADR-001); these went
+back to 19.2.3 with the 19.2 types. socket.io 4.8.4 put a second copy into `apps/api` beside the
+4.8.3 that `@nestjs/platform-socket.io` 12.1 depends on exactly, so `RedisIoAdapter` no longer
+type-checked. ESLint 10 could not load `eslint-plugin-react` (ADR-015). The other updates of that
+round were kept. Outside CI, the compose stack's OSRM image moved to 26.10 while
 `scripts/prepare-osrm.sh` still prepared data with 26.9, which `osrm-routed` 26.10 refuses, and the
-CI service containers kept testing Redis 8.8 while the stack ran 8.10. After the manifests were
-put right, npm kept the replaced packages in the lockfile wherever they still satisfied other
-packages' peer ranges, so React Native 0.87.1 stayed installed beside 0.86.3.
+CI service containers kept testing Redis 8.8 while the stack ran 8.10. After the manifests were put
+right, npm kept the replaced packages in the lockfile wherever they still satisfied other packages'
+peer ranges, so React Native 0.87.1 stayed installed beside 0.86.3.
 
 **Decision.** The Expo SDK decides React Native, React, react-dom and react-native-svg (its
 `bundledNativeModules.json`): Dependabot ignores them and takes only patch releases of `expo` and

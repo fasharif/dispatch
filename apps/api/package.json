@@ -26,7 +26,7 @@
     "@nestjs/throttler": "6.7.1",
     "@nestjs/websockets": "12.1.1",
     "@socket.io/redis-adapter": "8.3.0",
-    "bullmq": "6.3.9",
+    "bullmq": "6.3.10",
     "helmet": "8.3.0",
     "ioredis": "6.0.0",
     "jose": "6.2.12",

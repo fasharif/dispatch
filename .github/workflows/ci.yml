@@ -157,6 +157,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # React Native, React and the Expo modules must be the versions the Expo SDK expects;
+      # `npx expo install --fix` in apps/driver installs them (ADR-015).
+      - run: npx expo install --check
+        working-directory: apps/driver
       - run: npm run build -w @dispatch/shared
       # Bundles the Android JavaScript the way a release build would, without a device.
       - run: npm run bundle -w @dispatch/driver

@@ -58,7 +58,7 @@ jobs:
           --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
           --health-interval 3s --health-timeout 3s --health-retries 30
       redis:
-        image: redis:8.8.3-alpine
+        image: redis:8.10.2-alpine
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
@@ -94,7 +94,7 @@ jobs:
           --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
           --health-interval 3s --health-timeout 3s --health-retries 30
       redis:
-        image: redis:8.8.3-alpine
+        image: redis:8.10.2-alpine
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"

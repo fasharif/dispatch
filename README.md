@@ -222,9 +222,10 @@ stack).
 `npm run lint`, `npm run typecheck` and `npm run format:check` run the same checks as CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), which also runs the integration,
 end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle (after
-checking the driver app's versions against the Expo SDK), a 20-driver scale smoke test, and
-shellcheck and actionlint on the scripts and the workflow. Dependabot leaves React Native, React
-and socket.io alone: the Expo SDK and NestJS decide those versions (ADR-019).
+checking the driver app's versions against the Expo SDK), a 20-driver scale smoke test,
+shellcheck and actionlint on the scripts and the workflow, and a check that the workflow's PostGIS
+and Redis service containers use the images in `docker-compose.yml`. Dependabot leaves React Native,
+React and socket.io alone: the Expo SDK and NestJS decide those versions (ADR-019).
 
 ### Scale test at 1,000 drivers
 

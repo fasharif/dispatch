@@ -484,13 +484,16 @@ bundling, so an Expo update that expects other versions fails with the list of p
 `npx expo install --fix` in `apps/driver` on the same branch installs them. socket.io stays at the
 version `@nestjs/platform-socket.io` depends on; Dependabot ignores it, and it moves in the NestJS
 update that changes it, with `npm ls socket.io` showing one version. `scripts/prepare-osrm.sh` takes
-its image from `docker-compose.yml`, and the CI service containers use the stack's Redis version.
-After versions are changed by hand, the stale entries of the affected packages are removed from
+its image from `docker-compose.yml`, and the CI service containers use the stack's PostGIS and Redis
+images; `scripts/check-service-images.sh`, in CI's scripts job, fails when they differ. After
+versions are changed by hand, the stale entries of the affected packages are removed from
 `package-lock.json` before `npm install --package-lock-only` regenerates it, and the result is
 checked with `npm ci --dry-run` under the npm version CI uses.
 
 **Consequences.** The web console stays on the React version the Expo SDK pins (ADR-001), and a
 newer React or React Native arrives only with an Expo update. socket.io 4.8.4, which among other
 things clears acknowledgements left behind by a timed-out broadcast, waits for a NestJS release
-that depends on it. OSRM data prepared before an OSRM update has to be prepared again. Updates to
-the ignored packages are deliberate rather than proposed.
+that depends on it. OSRM data prepared before an OSRM update has to be prepared again. A Dependabot
+update to the stack's PostGIS or Redis image fails CI until the workflow's service containers are
+moved to the same tag on its branch. Updates to the ignored packages are deliberate rather than
+proposed.

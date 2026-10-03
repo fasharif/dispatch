@@ -38,6 +38,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      # Dependabot moves the PostGIS and Redis images in docker-compose.yml but not the service
+      # containers in this workflow; this fails until both use the same tag (ADR-019).
+      - run: bash scripts/check-service-images.sh
       # Pinned images, so the runner's preinstalled versions do not decide the result.
       - run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 load/*.sh scripts/*.sh
       - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
@@ -58,7 +61,7 @@ jobs:
           --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
           --health-interval 3s --health-timeout 3s --health-retries 30
       redis:
-        image: redis:8.8.3-alpine
+        image: redis:8.10.2-alpine
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
@@ -94,7 +97,7 @@ jobs:
           --health-cmd "pg_isready -h 127.0.0.1 -U dispatch"
           --health-interval 3s --health-timeout 3s --health-retries 30
       redis:
-        image: redis:8.8.3-alpine
+        image: redis:8.10.2-alpine
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
@@ -157,6 +160,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # React Native, React and the Expo modules must be the versions the Expo SDK expects;
+      # `npx expo install --fix` in apps/driver installs them (ADR-019).
+      - run: npx expo install --check
+        working-directory: apps/driver
       - run: npm run build -w @dispatch/shared
       # Bundles the Android JavaScript the way a release build would, without a device.
       - run: npm run bundle -w @dispatch/driver

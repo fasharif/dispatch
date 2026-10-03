@@ -22,7 +22,8 @@ costs. Newer records can replace older ones; nothing is edited silently.
 | [015](#adr-015--toolchain-pins-typescript-6-and-eslint-9)                                          | Toolchain pins: TypeScript 6 and ESLint 9                                            |
 | [016](#adr-016--docker-desktop-bind-mount-workarounds)                                             | Docker Desktop bind-mount workarounds                                                |
 | [017](#adr-017--the-console-reloads-drivers-and-deliveries-on-every-connection)                    | The console reloads drivers and deliveries on every connection                       |
-| [018](#adr-018--the-uuid-advisory-in-expos-build-tooling-is-accepted)                              | The uuid advisory in Expo's build tooling is accepted                                |
+| [018](#adr-018--advisories-in-the-build-and-lint-tooling-are-accepted)                             | Advisories in the build and lint tooling are accepted                                |
+| [019](#adr-019--dependency-updates-follow-the-expo-sdk-nestjs-and-the-compose-stack)               | Dependency updates follow the Expo SDK, NestJS and the compose stack                 |
 
 ---
 
@@ -371,15 +372,25 @@ the capacity of a deployment.
 
 ## ADR-015 — Toolchain pins: TypeScript 6 and ESLint 9
 
-**Context.** TypeScript 7 and ESLint 10 exist, but `typescript-eslint` does not support
-TypeScript 7 yet, and the Next.js and Expo ESLint configurations require ESLint 9.
+**Context.** TypeScript 7 and ESLint 10 exist, but `typescript-eslint` does not support TypeScript 7
+yet (8.71.0 accepts TypeScript `>=4.8.4 <6.1.0`), and the Next.js and Expo ESLint configurations
+require ESLint 9: both use `eslint-plugin-react` 7, whose newest release (7.37.5) accepts ESLint up
+to 9 and fails to load its rules in ESLint 10 (`contextOrFilename.getFilename is not a function`). A
+Dependabot update to ESLint 10 broke the lint that way and was reverted (ADR-019).
 
-**Decision.** TypeScript 6.0 and ESLint 9.39 with `typescript-eslint`'s strict type-checked
-rules across the workspace, exact versions in every `package.json`, and the lockfile committed.
-Dependabot proposes updates weekly, grouped by family (NestJS, Expo, React, lint, test).
+**Decision.** TypeScript 6.0 and ESLint 9.39 with `typescript-eslint`'s strict type-checked rules
+across the workspace, exact versions in every `package.json`, and the lockfile committed. Dependabot
+proposes updates weekly, grouped by family (NestJS, Expo, React types, lint, test), and does not
+propose TypeScript or ESLint majors, nor `@types/node` majors, which follow the Node 24 runtime
+(`.nvmrc` and the Docker images). ESLint 10 for the workspaces without React and ESLint 9 for the
+web and driver apps was considered and not done: two linter majors in one lockfile, for the same
+rules.
 
 **Consequences.** One compiler and one linter configuration everywhere. Moving to TypeScript 7
-waits for `typescript-eslint`.
+waits for `typescript-eslint`, and moving to ESLint 10 waits for `eslint-plugin-react` (or for the
+Next.js and Expo configurations to drop it). Until then the lint runs on a release npm marks as no
+longer supported (9.39.5), which receives no further fixes. A new `@types/node` major is taken
+together with the Node.js runtime it describes.
 
 ## ADR-016 — Docker Desktop bind-mount workarounds
 
@@ -418,17 +429,71 @@ made while it was away one by one; the delivery's own history (its events) has t
 delivery and status events into a resumable stream as well would give that, with more moving
 parts; it is not needed for a console that shows current state.
 
-## ADR-018 — The uuid advisory in Expo's build tooling is accepted
+## ADR-018 — Advisories in the build and lint tooling are accepted
 
-**Context.** `npm audit` reports GHSA-w5hq-g745-h8pq (moderate) for `uuid` 7.0.3, which `xcode`
-3.0.1 pulls in through `@expo/config-plugins`; npm counts it once per dependent package, 10 in
-all. The flaw is a missing bounds check in `v3`, `v5` and `v6` when the caller passes a buffer.
+**Context.** `npm audit` reports three advisories, each counted once for the affected package and
+once for every package that depends on it. When this record was first written only the first was
+reported (10 moderate findings); on 3 October 2026 the three give 26 (7 moderate, 19 high).
+GHSA-w5hq-g745-h8pq (moderate) is for `uuid` 7.0.3, which `xcode` 3.0.1 pulls in through
+`@expo/config-plugins`: a missing bounds check in `v3`, `v5` and `v6` when the caller passes a
+buffer. GHSA-vfj7-8cjw-p6xm (high) is for `braces` 3.0.3, which `micromatch` uses in Metro's file
+map (`@expo/metro-file-map`, `metro-file-map`) and in `fast-glob` under `@next/eslint-plugin-next`:
+deeply nested brace patterns exhaust the stack. GHSA-86w9-cpqp-85rv (high) is for `node-forge`
+1.4.0, which `@expo/cli` uses for iOS code signing and for signing Expo updates: its RSA PKCS#1 v1.5
+signature verification accepts extra nested `DigestAlgorithm` elements. `braces` and `node-forge`
+have no fixed release yet; 3.0.3 and 1.4.0 are their newest.
 
-**Decision.** Accept it for now. `xcode` calls only `uuid.v4()` without a buffer, and the code runs
-only in Expo's build tooling (config plugins, prebuild), never in the API, the web app or the
-driver app's bundle. An npm `overrides` entry for `uuid` 11.1.1 was tried: npm did not apply it
-through the workspace link, and a hand-edited lockfile made `npm ls` report the tree as invalid,
-so it was not kept. Dependabot's Expo group will propose the fixed Expo release.
+**Decision.** Accept them for now. `xcode` calls only `uuid.v4()` without a buffer. The patterns
+`braces` expands come from the Metro and ESLint configuration in this repository, not from users of
+the system. The driver app uses neither the Expo CLI's iOS code signing nor signed updates (it has
+no `expo-updates`). All three run only in Expo's build tooling and the Next.js lint rules, never in
+the API, the web app or the driver app's bundle: `npm ls --omit=dev` lists none of them for the API
+and web workspaces. An npm `overrides` entry for `uuid` 11.1.1 was tried: npm did not apply it
+through the workspace link, and a hand-edited lockfile made `npm ls` report the tree as invalid, so
+it was not kept. Dependabot's version updates cover only the packages named in the manifests. A
+fixed `braces` or `node-forge` within the ranges their dependents accept is taken with
+`npm update braces node-forge`. A fix in an Expo package arrives as an SDK 57 patch pull request
+(ADR-019); one that ships only with a new SDK needs a manual `npx expo install expo@^<SDK> --fix`.
 
-**Consequences.** `npm audit` is not clean, and the README says why. The finding is reviewed again
-when Expo updates `@expo/config-plugins` or `xcode`.
+**Consequences.** `npm audit` is not clean, and the README says why. The findings are reviewed again
+when `braces` or `node-forge` publish a fix, and when Expo or `eslint-config-next` update the
+packages that bring them in.
+
+## ADR-019 — Dependency updates follow the Expo SDK, NestJS and the compose stack
+
+**Context.** Dependabot proposes each package's newest release, but some versions here are set by
+another package. Merging the first round of Dependabot pull requests on 3 October 2026 broke CI. The
+Expo group moved React Native to 0.87.1 and react-native-svg to 15.15.5, while Expo SDK 57 expects
+0.86.3 and 15.15.4, and Metro failed to find `react-native/rn-get-polyfills`. The React group,
+merged later the same day, moved react, react-dom and their types to 19.3.0 in both apps, while Expo
+SDK 57 pins React 19.2.3 and the web console shares the driver app's React (ADR-001); these went
+back to 19.2.3 with the 19.2 types. socket.io 4.8.4 put a second copy into `apps/api` beside the
+4.8.3 that `@nestjs/platform-socket.io` 12.1 depends on exactly, so `RedisIoAdapter` no longer
+type-checked. ESLint 10 could not load `eslint-plugin-react` (ADR-015). The other updates of that
+round were kept. Outside CI, the compose stack's OSRM image moved to 26.10 while
+`scripts/prepare-osrm.sh` still prepared data with 26.9, which `osrm-routed` 26.10 refuses, and the
+CI service containers kept testing Redis 8.8 while the stack ran 8.10. After the manifests were put
+right, npm kept the replaced packages in the lockfile wherever they still satisfied other packages'
+peer ranges, so React Native 0.87.1 stayed installed beside 0.86.3.
+
+**Decision.** The Expo SDK decides React Native, React, react-dom and react-native-svg (its
+`bundledNativeModules.json`): Dependabot ignores them and takes only patch releases of `expo` and
+the Expo modules, and the React types take patch releases only. A new SDK is a manual
+`npx expo install expo@^<SDK> --fix`. The driver job in CI runs `npx expo install --check` before
+bundling, so an Expo update that expects other versions fails with the list of packages, and
+`npx expo install --fix` in `apps/driver` on the same branch installs them. socket.io stays at the
+version `@nestjs/platform-socket.io` depends on; Dependabot ignores it, and it moves in the NestJS
+update that changes it, with `npm ls socket.io` showing one version. `scripts/prepare-osrm.sh` takes
+its image from `docker-compose.yml`, and the CI service containers use the stack's PostGIS and Redis
+images; `scripts/check-service-images.sh`, in CI's scripts job, fails when they differ. After
+versions are changed by hand, the stale entries of the affected packages are removed from
+`package-lock.json` before `npm install --package-lock-only` regenerates it, and the result is
+checked with `npm ci --dry-run` under the npm version CI uses.
+
+**Consequences.** The web console stays on the React version the Expo SDK pins (ADR-001), and a
+newer React or React Native arrives only with an Expo update. socket.io 4.8.4, which among other
+things clears acknowledgements left behind by a timed-out broadcast, waits for a NestJS release
+that depends on it. OSRM data prepared before an OSRM update has to be prepared again. A Dependabot
+update to the stack's PostGIS or Redis image fails CI until the workflow's service containers are
+moved to the same tag on its branch. Updates to the ignored packages are deliberate rather than
+proposed.

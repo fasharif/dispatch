@@ -9,14 +9,56 @@ updates:
       # Packages released together are updated together.
       nestjs:
         patterns: ['@nestjs/*']
+      # Patch releases within the current Expo SDK only (see the ignore rules). React Native and
+      # React come from the SDK: when an Expo update expects other versions, the driver job's
+      # `expo install --check` fails, and `npx expo install --fix` in apps/driver on that pull
+      # request installs them.
       expo:
-        patterns: ['expo', 'expo-*', 'react-native', 'react-native-*', '@expo/*']
+        patterns: ['expo', 'expo-*', '@expo/*']
       react:
-        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+        patterns: ['@types/react', '@types/react-dom']
       lint:
         patterns: ['eslint', 'eslint-*', '@eslint/*', 'typescript-eslint', 'prettier']
       test:
         patterns: ['vitest', '@vitest/*', '@playwright/test', 'unplugin-swc', '@swc/*']
+    ignore:
+      # The Expo SDK pins these exactly (expo/bundledNativeModules.json), and the web console shares
+      # the driver app's single copy of React. They change only through `npx expo install --fix`.
+      - dependency-name: react-native
+      - dependency-name: react-native-*
+      - dependency-name: react
+      - dependency-name: react-dom
+      # A new Expo SDK moves React Native, React and every Expo module together; it is upgraded by
+      # hand with `npx expo install expo@^<next SDK> --fix`, not one package at a time.
+      - dependency-name: expo
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: expo-*
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: eslint-config-expo
+        update-types: ['version-update:semver-major']
+      # The React types follow the React version the Expo SDK pins.
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      # ESLint 10 cannot load eslint-plugin-react 7, which eslint-config-next and eslint-config-expo
+      # use (ADR-015). Remove these two rules once eslint-plugin-react supports ESLint 10.
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@eslint/js'
+        update-types: ['version-update:semver-major']
+      # typescript-eslint 8 accepts TypeScript >=4.8.4 <6.1.0, so TypeScript 7 waits for a
+      # typescript-eslint release that supports it (ADR-015).
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # The runtime is Node 24 (.nvmrc and the Docker images); a newer @types/node major would type
+      # the code against APIs Node 24 does not have. It moves with the runtime.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # @nestjs/platform-socket.io depends on one exact socket.io version, and RedisIoAdapter only
+      # type-checks when apps/api uses that same copy. Move socket.io in the NestJS update that
+      # changes it (`npm ls socket.io` must show one version).
+      - dependency-name: socket.io
 
   - package-ecosystem: github-actions
     directory: /

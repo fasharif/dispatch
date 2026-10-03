@@ -221,8 +221,11 @@ stack).
 
 `npm run lint`, `npm run typecheck` and `npm run format:check` run the same checks as CI
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), which also runs the integration,
-end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle, a
-20-driver scale smoke test, and shellcheck and actionlint on the scripts and the workflow.
+end-to-end and browser tests with PostGIS and Redis service containers, the driver bundle (after
+checking the driver app's versions against the Expo SDK), a 20-driver scale smoke test,
+shellcheck and actionlint on the scripts and the workflow, and a check that the workflow's PostGIS
+and Redis service containers use the images in `docker-compose.yml`. Dependabot leaves React Native,
+React and socket.io alone: the Expo SDK and NestJS decide those versions (ADR-019).
 
 ### Scale test at 1,000 drivers
 
@@ -289,10 +292,12 @@ tokens, and the rest.
   memory needs are not known here. The fallback ETA ignores traffic.
 - The console reloads delivery and driver-status changes after a reconnect rather than replaying
   them, so it shows the current state, not every change made while it was away (ADR-017).
-- `npm audit` reports 10 moderate findings: one advisory for `uuid` below 11.1.1, counted once
-  for `uuid` and once for each of the nine Expo build-tooling packages that depend on it through
-  `xcode`. The advisory concerns `v3`, `v5` and `v6` with a caller-supplied buffer; `xcode` calls
-  only `uuid.v4()`, and none of it runs in the API or the web app (ADR-018).
+- `npm audit` reports 26 findings (7 moderate, 19 high) from three advisories, each counted once for
+  the affected package and once for every package that depends on it: `uuid` below 11.1.1 (through
+  `xcode` in Expo's config plugins), `braces` 3.0.3 (through `micromatch` in Metro and in the
+  Next.js ESLint plugin) and `node-forge` 1.4.0 (the Expo CLI's code signing). `braces` and
+  `node-forge` have no fixed release yet. All three are build and lint tooling; none of them runs in
+  the API, the web app or the driver app's bundle (ADR-018).
 - Automatic assignment ranks drivers by straight-line distance, not by road travel time.
 - Proof-of-delivery photos are stored on a local volume; several API hosts would need shared or
   object storage.

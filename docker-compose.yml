@@ -146,7 +146,7 @@ services:
   # Bind-mounted files are not always readable by non-root users (Docker Desktop on Windows).
   tiles:
     profiles: [stack]
-    image: nginx:1.30.5-alpine
+    image: nginx:1.31.0-alpine
     command: ['sh', '-c', 'cp /src/*.pmtiles /tiles/ 2>/dev/null; chmod -R a+rX /tiles; ls /tiles']
     volumes:
       - ./apps/web/public/tiles:/src:ro
@@ -155,7 +155,7 @@ services:
 
   nginx:
     profiles: [stack]
-    image: nginx:1.30.5-alpine
+    image: nginx:1.31.0-alpine
     ports:
       - '127.0.0.1:${DISPATCH_HTTP_PORT:-57080}:80'
     volumes:

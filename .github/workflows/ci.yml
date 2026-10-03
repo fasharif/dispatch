@@ -158,7 +158,7 @@ jobs:
           cache: npm
       - run: npm ci
       # React Native, React and the Expo modules must be the versions the Expo SDK expects;
-      # `npx expo install --fix` in apps/driver installs them (ADR-015).
+      # `npx expo install --fix` in apps/driver installs them (ADR-019).
       - run: npx expo install --check
         working-directory: apps/driver
       - run: npm run build -w @dispatch/shared

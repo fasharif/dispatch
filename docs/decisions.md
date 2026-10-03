@@ -23,6 +23,7 @@ costs. Newer records can replace older ones; nothing is edited silently.
 | [016](#adr-016--docker-desktop-bind-mount-workarounds)                                             | Docker Desktop bind-mount workarounds                                                |
 | [017](#adr-017--the-console-reloads-drivers-and-deliveries-on-every-connection)                    | The console reloads drivers and deliveries on every connection                       |
 | [018](#adr-018--the-uuid-advisory-in-expos-build-tooling-is-accepted)                              | The uuid advisory in Expo's build tooling is accepted                                |
+| [019](#adr-019--dependency-updates-follow-the-expo-sdk-nestjs-and-the-compose-stack)               | Dependency updates follow the Expo SDK, NestJS and the compose stack                 |
 
 ---
 
@@ -372,14 +373,22 @@ the capacity of a deployment.
 ## ADR-015 — Toolchain pins: TypeScript 6 and ESLint 9
 
 **Context.** TypeScript 7 and ESLint 10 exist, but `typescript-eslint` does not support
-TypeScript 7 yet, and the Next.js and Expo ESLint configurations require ESLint 9.
+TypeScript 7 yet, and the Next.js and Expo ESLint configurations require ESLint 9: both use
+`eslint-plugin-react` 7, whose newest release (7.37.5) accepts ESLint up to 9 and fails to load
+its rules in ESLint 10 (`contextOrFilename.getFilename is not a function`). A Dependabot update
+to ESLint 10 broke the lint that way and was reverted (ADR-019).
 
 **Decision.** TypeScript 6.0 and ESLint 9.39 with `typescript-eslint`'s strict type-checked
 rules across the workspace, exact versions in every `package.json`, and the lockfile committed.
-Dependabot proposes updates weekly, grouped by family (NestJS, Expo, React, lint, test).
+Dependabot proposes updates weekly, grouped by family (NestJS, Expo, React types, lint, test), and
+does not propose ESLint majors. ESLint 10 for the workspaces without React and ESLint 9 for the
+web and driver apps was considered and not done: two linter majors in one lockfile, for the same
+rules.
 
 **Consequences.** One compiler and one linter configuration everywhere. Moving to TypeScript 7
-waits for `typescript-eslint`.
+waits for `typescript-eslint`, and moving to ESLint 10 waits for `eslint-plugin-react` (or for the
+Next.js and Expo configurations to drop it). Until then the lint runs on a release npm marks as no
+longer supported (9.39.5), which receives no further fixes.
 
 ## ADR-016 — Docker Desktop bind-mount workarounds
 
@@ -432,3 +441,36 @@ so it was not kept. Dependabot's Expo group will propose the fixed Expo release.
 
 **Consequences.** `npm audit` is not clean, and the README says why. The finding is reviewed again
 when Expo updates `@expo/config-plugins` or `xcode`.
+
+## ADR-019 — Dependency updates follow the Expo SDK, NestJS and the compose stack
+
+**Context.** Dependabot proposes each package's newest release, but some versions here are set by
+another package. Merging the first round of Dependabot pull requests on 3 October 2026 broke CI.
+The Expo group moved React Native to 0.87.1 and react-native-svg to 15.15.5, while Expo SDK 57
+expects 0.86.3 and 15.15.4, and Metro failed to find `react-native/rn-get-polyfills`. socket.io
+4.8.4 put a second copy into `apps/api` beside the 4.8.3 that `@nestjs/platform-socket.io` 12.1
+depends on exactly, so `RedisIoAdapter` no longer type-checked. ESLint 10 could not load
+`eslint-plugin-react` (ADR-015). Outside CI, the compose stack's OSRM image moved to 26.10 while
+`scripts/prepare-osrm.sh` still prepared data with 26.9, which `osrm-routed` 26.10 refuses, and the
+CI service containers kept testing Redis 8.8 while the stack ran 8.10. After the manifests were
+put right, npm kept the replaced packages in the lockfile wherever they still satisfied other
+packages' peer ranges, so React Native 0.87.1 stayed installed beside 0.86.3.
+
+**Decision.** The Expo SDK decides React Native, React, react-dom and react-native-svg (its
+`bundledNativeModules.json`): Dependabot ignores them and takes only patch releases of `expo` and
+the Expo modules, and the React types take patch releases only. A new SDK is a manual
+`npx expo install expo@^<SDK> --fix`. The driver job in CI runs `npx expo install --check` before
+bundling, so an Expo update that expects other versions fails with the list of packages, and
+`npx expo install --fix` in `apps/driver` on the same branch installs them. socket.io stays at the
+version `@nestjs/platform-socket.io` depends on; Dependabot ignores it, and it moves in the NestJS
+update that changes it, with `npm ls socket.io` showing one version. `scripts/prepare-osrm.sh` takes
+its image from `docker-compose.yml`, and the CI service containers use the stack's Redis version.
+After versions are changed by hand, the stale entries of the affected packages are removed from
+`package-lock.json` before `npm install --package-lock-only` regenerates it, and the result is
+checked with `npm ci --dry-run` under the npm version CI uses.
+
+**Consequences.** The web console stays on the React version the Expo SDK pins (ADR-001), and a
+newer React or React Native arrives only with an Expo update. socket.io 4.8.4, which among other
+things clears acknowledgements left behind by a timed-out broadcast, waits for a NestJS release
+that depends on it. OSRM data prepared before an OSRM update has to be prepared again. Updates to
+the ignored packages are deliberate rather than proposed.
